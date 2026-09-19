@@ -171,8 +171,23 @@ specific board actually uses if different.
 ```bash
 # Enable I2C
 sudo raspi-config nonint do_i2c 0
+```
 
-# Add the overlay for your RTC chip
+Before adding the overlay, confirm the module is actually detected on the
+bus — this catches a wiring issue immediately instead of after guessing an
+overlay wrong and rebooting for nothing:
+
+```bash
+sudo apt-get install -y i2c-tools
+sudo i2cdetect -y 1
+```
+
+Look for a device address in the output — `68` covers DS3231/DS1307/PCF8523
+(the common cheap-module chips), `51` covers PCF8563. Nothing showing up
+means fix the wiring before going further.
+
+```bash
+# Add the overlay matching whatever chip you confirmed above
 echo "dtoverlay=i2c-rtc,ds3231" | sudo tee -a /boot/firmware/config.txt
 
 sudo reboot

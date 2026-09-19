@@ -98,3 +98,103 @@ then deauthorizes/reauthorizes the Stream Deck's USB port so a fresh device
 node appears free of any stale state from Companion's session — the same
 release dance `menu.py` does when handing off in the other direction —
 before starting `menu.service`.
+
+### Timezone-switching Companion buttons (manual setup)
+
+Not deployed by the installer — this is a personal setup note for adding
+one-press timezone switching (e.g. touring between US/Canada markets)
+directly in Companion, since `menu.py` has no timezone UI of its own.
+
+Grant the `companion` user passwordless sudo for changing the system
+timezone and for restarting Companion:
+
+```bash
+sudo tee /etc/sudoers.d/092-timezone > /dev/null <<'EOF'
+companion ALL=NOPASSWD: /usr/bin/timedatectl set-timezone *
+companion ALL=NOPASSWD: /usr/bin/systemctl restart companion
+EOF
+sudo visudo -cf /etc/sudoers.d/092-timezone && sudo chmod 440 /etc/sudoers.d/092-timezone
+```
+
+Companion restarting on every zone change isn't optional cleanup — it's
+required. Companion's own internal time/date variables only resolve the OS
+timezone once per process (a Node.js/V8 runtime limitation, not a Companion
+bug), so without a restart they silently keep showing the *previous* zone
+even after `timedatectl` has already changed. Since this is a "press once
+when you land in a new city" action rather than something done mid-show, a
+few seconds of Companion restarting is an acceptable trade for the internal
+variables actually being correct afterward.
+
+One **Run shell path** button per zone, each command chained with `&&` so
+the restart only fires after the zone actually changes successfully:
+
+| Button | Command |
+| --- | --- |
+| EASTERN | `sudo /usr/bin/timedatectl set-timezone America/New_York && sudo systemctl restart companion` |
+| CENTRAL | `sudo /usr/bin/timedatectl set-timezone America/Chicago && sudo systemctl restart companion` |
+| MOUNTAIN | `sudo /usr/bin/timedatectl set-timezone America/Denver && sudo systemctl restart companion` |
+| PACIFIC | `sudo /usr/bin/timedatectl set-timezone America/Los_Angeles && sudo systemctl restart companion` |
+| ARIZONA | `sudo /usr/bin/timedatectl set-timezone America/Phoenix && sudo systemctl restart companion` |
+
+(`America/Toronto`/`Winnipeg`/`Edmonton`/`Vancouver`/`Whitehorse` are the
+Canadian equivalents of Eastern/Central/Mountain/Pacific/Arizona
+respectively — identical clock behavior, just a different IANA label, so
+swap in whichever name you'd rather see if you prefer the Canadian city.)
+
+A readout button showing the active zone, using Companion's own
+`$(internal:timezone)` variable — accurate here specifically *because*
+every button above restarts Companion, so it's never stale — via a text
+expression:
+
+```
+includes($(internal:timezone), 'New_York') ? 'EASTERN' :
+includes($(internal:timezone), 'Chicago') ? 'CENTRAL' :
+includes($(internal:timezone), 'Denver') ? 'MOUNTAIN' :
+includes($(internal:timezone), 'Los_Angeles') ? 'PACIFIC' :
+includes($(internal:timezone), 'Phoenix') ? 'ARIZONA' :
+$(internal:timezone)
+```
+
+### RTC (real-time clock) battery module (manual setup)
+
+Not deployed by the installer — a personal reference for enabling a
+battery-backed RTC so the Pi keeps correct time offline (e.g. between shows,
+before it reaches a network with NTP).
+
+**Raspberry Pi 5:** has an onboard RTC already; connecting a battery to its
+RTC battery header is enough, no software setup needed.
+
+**Any other Pi:** needs an add-on I2C RTC module. Steps below assume a
+DS3231 (the common cheap-module chip) — swap `ds3231` for whatever chip your
+specific board actually uses if different.
+
+```bash
+# Enable I2C
+sudo raspi-config nonint do_i2c 0
+
+# Add the overlay for your RTC chip
+echo "dtoverlay=i2c-rtc,ds3231" | sudo tee -a /boot/firmware/config.txt
+
+sudo reboot
+```
+
+After rebooting, remove `fake-hwclock` (it fakes an RTC by saving/restoring
+system time across boots — only useful on boards *without* a real one, and
+it can conflict with a genuine RTC if left in place):
+
+```bash
+sudo apt-get remove -y fake-hwclock
+```
+
+Confirm the RTC is actually being read:
+
+```bash
+sudo hwclock -r
+```
+
+Then set the correct time once (from network, or manually) and write it to
+the RTC so the battery carries it forward from here:
+
+```bash
+sudo hwclock -w
+```

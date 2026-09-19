@@ -61,7 +61,7 @@ install.sh          # one-liner bootstrap: resolves latest release, clones it, h
 installer/
   install.sh         # the real installer
 menu/
-  menu.py            # the chooser app, deployed to /opt/menu/menu.py
+  menu.py            # the menu app, deployed to /opt/menu/menu.py
   icons/             # deployed to /opt/menu/icons/
 ```
 

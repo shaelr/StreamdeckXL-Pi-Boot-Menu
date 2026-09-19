@@ -5,7 +5,7 @@ set -euo pipefail
 # menu installer for Raspberry Pi / Debian-based
 # - Waits for apt/dpkg locks (prevents lock-frontend errors)
 # - Repairs half-configured dpkg state if needed
-# - Deploys the chooser app into a venv (Stream Deck + XL support comes
+# - Deploys the menu app into a venv (Stream Deck + XL support comes
 #   from the upstream `streamdeck` PyPI package, always installed latest)
 # ==========================================================
 
@@ -15,15 +15,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MENU_SRC_DIR="$(cd "$SCRIPT_DIR/../menu" && pwd)"
 
-CHOOSER_DIR="/opt/menu"
-VENV_DIR="${CHOOSER_DIR}/venv"
-ICON_DIR="${CHOOSER_DIR}/icons"
+MENU_INSTALL_DIR="/opt/menu"
+VENV_DIR="${MENU_INSTALL_DIR}/venv"
+ICON_DIR="${MENU_INSTALL_DIR}/icons"
 LOG_FILE="/var/log/menu.log"
 CFG_DIR="/etc/menu"
 SERVICE_FILE="/etc/systemd/system/menu.service"
 UDEV_RULE="/etc/udev/rules.d/70-streamdeck.rules"
 
-CHOOSER_PY_SRC="${MENU_SRC_DIR}/menu.py"
+MENU_PY_SRC="${MENU_SRC_DIR}/menu.py"
 ICON_COMP_SRC="${MENU_SRC_DIR}/icons/comp256x256.png"
 ICON_SAT_SRC="${MENU_SRC_DIR}/icons/sat256x256.png"
 
@@ -55,7 +55,7 @@ check_arch() {
 check_sources() {
   local missing=0
   for f in \
-    "$CHOOSER_PY_SRC" \
+    "$MENU_PY_SRC" \
     "$ICON_COMP_SRC" \
     "$ICON_SAT_SRC"
   do
@@ -181,7 +181,7 @@ enable_networkmanager() {
 
 setup_dirs_and_log() {
   log "Creating directories..."
-  mkdir -p "$CHOOSER_DIR" "$ICON_DIR" "$CFG_DIR"
+  mkdir -p "$MENU_INSTALL_DIR" "$ICON_DIR" "$CFG_DIR"
   touch "$LOG_FILE"
 }
 
@@ -202,8 +202,8 @@ setup_venv_and_deps() {
 }
 
 deploy_files() {
-  log "Deploying chooser + icons..."
-  install -m 0755 "$CHOOSER_PY_SRC" "$CHOOSER_DIR/menu.py"
+  log "Deploying menu + icons..."
+  install -m 0755 "$MENU_PY_SRC" "$MENU_INSTALL_DIR/menu.py"
   install -m 0644 "$ICON_COMP_SRC" "$ICON_DIR/comp256x256.png"
   install -m 0644 "$ICON_SAT_SRC" "$ICON_DIR/sat256x256.png"
 }

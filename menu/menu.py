@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, time, json, subprocess, re, threading, io
+import sys, time, json, subprocess, re, threading
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -217,7 +217,7 @@ def img_text(deck, text, bg, sub=None):
         bb2 = d.textbbox((0, 0), sub, font=FONT_SML)
         sw, sh = bb2[2] - bb2[0], bb2[3] - bb2[1]
         d.text(((w - sw) // 2, h - sh - 6), sub, font=FONT_SML, fill=(255, 255, 255))
-    return PILHelper.to_native_format(deck, im)
+    return PILHelper.to_native_key_format(deck, im)
 
 def img_icon(deck, label, bg, path):
     w, h = deck.key_image_format()["size"]
@@ -232,7 +232,7 @@ def img_icon(deck, label, bg, path):
     bb = d.textbbox((0, 0), label, font=FONT_SML)
     tw, th = bb[2] - bb[0], bb[3] - bb[1]
     d.text(((w - tw) // 2, h - th - 6), label, font=FONT_SML, fill=(255, 255, 255))
-    return PILHelper.to_native_format(deck, im)
+    return PILHelper.to_native_key_format(deck, im)
 
 def blank_key(deck):
     return img_text(deck, "", (0, 0, 0))
@@ -247,10 +247,9 @@ def flash_ok(color_rgb, text):
 
 def update_lcd():
     try:
-        w      = deck.TOUCHSCREEN_PIXEL_WIDTH
-        h      = deck.TOUCHSCREEN_PIXEL_HEIGHT
+        w, h   = deck.touchscreen_image_format()["size"]
         ZONE_W = 200
-        im = Image.new("RGB", (w, h), (0, 0, 0))
+        im = PILHelper.create_touchscreen_image(deck)
         d  = ImageDraw.Draw(im)
 
         def draw_zone(zone_idx, bot_label, bot_color):
@@ -278,16 +277,9 @@ def update_lcd():
             draw_zone(4, bot_label=f"{cur_mask[0]}.{cur_mask[1]}", bot_color=(150, 255, 150))
             draw_zone(5, bot_label=f"{cur_mask[2]}.{cur_mask[3]}", bot_color=(150, 255, 150))
 
-        tiles = []
-        for tx in range(0, w, 100):
-            tile = im.crop((tx, 0, tx + 100, h)).rotate(90)
-            buf  = io.BytesIO()
-            tile.save(buf, format="JPEG", quality=90)
-            tiles.append((tx, buf.getvalue()))
-
+        native = PILHelper.to_native_touchscreen_format(deck, im)
         with deck_lock:
-            for tx, data in tiles:
-                deck.set_touchscreen_image(data, tx, 0, 100, h)
+            deck.set_touchscreen_image(native, 0, 0, w, h)
 
     except Exception as e:
         log(f"update_lcd error: {e}")

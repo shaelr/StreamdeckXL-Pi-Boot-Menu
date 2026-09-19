@@ -5,12 +5,13 @@ set -euo pipefail
 # menu installer for Raspberry Pi / Debian-based
 # - Waits for apt/dpkg locks (prevents lock-frontend errors)
 # - Repairs half-configured dpkg state if needed
-# - Deploys custom StreamDeck modules into venv
+# - Deploys the chooser app into a venv (Stream Deck + XL support
+#   comes from the upstream `streamdeck` PyPI package, >=0.10.0)
 # ==========================================================
 
-# Resolve sibling source files (menu.py, icons, custom StreamDeck modules)
-# relative to this script's own location, not the caller's cwd — so this
-# still works when run as `bash Installer/Installer.sh` from elsewhere.
+# Resolve sibling source files (menu.py, icons) relative to this script's
+# own location, not the caller's cwd — so this still works when run as
+# `bash Installer/Installer.sh` from elsewhere.
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CHOOSER_DIR="/opt/menu"
@@ -21,12 +22,12 @@ CFG_DIR="/etc/menu"
 SERVICE_FILE="/etc/systemd/system/menu.service"
 UDEV_RULE="/etc/udev/rules.d/70-streamdeck.rules"
 
+# Stream Deck + XL support landed upstream in streamdeck 0.10.0.
+STREAMDECK_MIN_VERSION="0.10.0"
+
 CHOOSER_PY_SRC="menu.py"
 ICON_COMP_SRC="comp256x256.png"
 ICON_SAT_SRC="sat256x256.png"
-CUSTOM_DECK_SRC="StreamDeckPlusXL.py"
-CUSTOM_DEVICEMANAGER_SRC="DeviceManager.py"
-CUSTOM_PRODUCTIDS_SRC="ProductIDs.py"
 
 log() { echo "[$(date +'%F %T')] $*"; }
 
@@ -58,10 +59,7 @@ check_sources() {
   for f in \
     "$CHOOSER_PY_SRC" \
     "$ICON_COMP_SRC" \
-    "$ICON_SAT_SRC" \
-    "$CUSTOM_DECK_SRC" \
-    "$CUSTOM_DEVICEMANAGER_SRC" \
-    "$CUSTOM_PRODUCTIDS_SRC"
+    "$ICON_SAT_SRC"
   do
     if [[ ! -f "$f" ]]; then
       echo "Missing file in current folder: $f"
@@ -74,9 +72,6 @@ check_sources() {
     echo " - ${CHOOSER_PY_SRC}"
     echo " - ${ICON_COMP_SRC}"
     echo " - ${ICON_SAT_SRC}"
-    echo " - ${CUSTOM_DECK_SRC}"
-    echo " - ${CUSTOM_DEVICEMANAGER_SRC}"
-    echo " - ${CUSTOM_PRODUCTIDS_SRC}"
     exit 1
   fi
 }
@@ -200,32 +195,11 @@ setup_venv_and_deps() {
     python3 -m venv "$VENV_DIR"
   fi
   "$VENV_DIR/bin/pip3" install --upgrade pip
-  "$VENV_DIR/bin/pip3" install streamdeck hidapi pillow
-}
+  "$VENV_DIR/bin/pip3" install "streamdeck>=${STREAMDECK_MIN_VERSION}" hidapi pillow
 
-deploy_custom_streamdeck_modules() {
-  log "Deploying custom StreamDeck modules..."
-  # Auto-detect python3.x site-packages path inside venv
-  local py_lib_dir
-  py_lib_dir=$(ls -d "$VENV_DIR/lib/python3."* 2>/dev/null | head -n1 || true)
-
-  if [[ -z "$py_lib_dir" ]]; then
-    log "WARNING: Could not find python3.x lib dir in venv, skipping custom StreamDeck module deploy."
-    return 0
-  fi
-
-  local pkg_dir="${py_lib_dir}/site-packages/StreamDeck"
-  local dev_dir="${pkg_dir}/Devices"
-
-  mkdir -p "$pkg_dir" "$dev_dir"
-
-  # Overwrite the three modules with your versions
-  install -m 0644 "$CUSTOM_DECK_SRC"          "$dev_dir/StreamDeckPlusXL.py"
-  install -m 0644 "$CUSTOM_DEVICEMANAGER_SRC" "$pkg_dir/DeviceManager.py"
-  install -m 0644 "$CUSTOM_PRODUCTIDS_SRC"    "$pkg_dir/ProductIDs.py"
-
-  log "Custom StreamDeckPlusXL deployed to: $dev_dir"
-  log "Custom DeviceManager/ProductIDs deployed to: $pkg_dir"
+  local installed_version
+  installed_version=$("$VENV_DIR/bin/pip3" show streamdeck 2>/dev/null | awk '/^Version:/{print $2}')
+  log "Installed streamdeck package: ${installed_version:-unknown}"
 }
 
 deploy_files() {
@@ -272,7 +246,6 @@ main() {
   enable_networkmanager
   setup_dirs_and_log
   setup_venv_and_deps
-  deploy_custom_streamdeck_modules
   deploy_files
   write_systemd_service
 

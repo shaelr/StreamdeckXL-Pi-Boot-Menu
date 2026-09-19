@@ -11,10 +11,9 @@ for setting a static IP or switching back to DHCP.
 - Installs the latest **stable** release of Companion and Satellite (via
   Bitfocus's own installers), but leaves both services disabled — the menu
   decides which one runs.
-- Installs a custom fork of three files from the
-  [python-elgato-streamdeck](https://github.com/abcminiuser/python-elgato-streamdeck)
-  library, patched to add support for the Stream Deck + XL (not recognized by
-  the stock library).
+- Installs the [python-elgato-streamdeck](https://github.com/abcminiuser/python-elgato-streamdeck)
+  library (`streamdeck>=0.10.0`, the first PyPI release with native Stream
+  Deck + XL support) into a dedicated venv.
 - Installs the menu app itself as a systemd service (`menu.service`) that
   starts on boot, shows COMPANION/SATELLITE keys plus a network-config
   touchscreen, and hands off the USB device cleanly to whichever service you

@@ -42,18 +42,16 @@ Run this on the Pi:
 curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/main/install.sh | sudo bash
 ```
 
-This looks up the latest [GitHub Release](../../releases) of this repo,
-clones that tag to a temp directory, and runs
+This clones the latest commit on `main` to a temp directory and runs
 [`installer/install.sh`](installer/install.sh) from it, which does a full
 `apt update`/`upgrade`, installs Companion + Satellite, deploys the menu app,
-and enables everything to start on boot. `main` can move ahead independently —
-only tagged releases get installed by the one-liner.
+and enables everything to start on boot. It always installs whatever's
+newest on `main` — there are no release tags to keep up to date.
 
-Alternatively, clone a specific release yourself and run the installer
-directly:
+Alternatively, clone the repo yourself and run the installer directly:
 
 ```bash
-git clone --branch <tag> https://github.com/shaelr/StreamdeckXL-Pi-Boot-Menu.git
+git clone https://github.com/shaelr/StreamdeckXL-Pi-Boot-Menu.git
 cd StreamdeckXL-Pi-Boot-Menu/installer
 sudo ./install.sh
 ```

@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ==========================================================
+# menu installer for Raspberry Pi / Debian-based
+# - Waits for apt/dpkg locks (prevents lock-frontend errors)
+# - Repairs half-configured dpkg state if needed
+# - Deploys custom StreamDeck modules into venv
+# ==========================================================
+
+# Resolve sibling source files (menu.py, icons, custom StreamDeck modules)
+# relative to this script's own location, not the caller's cwd — so this
+# still works when run as `bash Installer/Installer.sh` from elsewhere.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+CHOOSER_DIR="/opt/menu"
+VENV_DIR="${CHOOSER_DIR}/venv"
+ICON_DIR="${CHOOSER_DIR}/icons"
+LOG_FILE="/var/log/menu.log"
+CFG_DIR="/etc/menu"
+SERVICE_FILE="/etc/systemd/system/menu.service"
+UDEV_RULE="/etc/udev/rules.d/70-streamdeck.rules"
+
+CHOOSER_PY_SRC="menu.py"
+ICON_COMP_SRC="comp256x256.png"
+ICON_SAT_SRC="sat256x256.png"
+CUSTOM_DECK_SRC="StreamDeckPlusXL.py"
+CUSTOM_DEVICEMANAGER_SRC="DeviceManager.py"
+CUSTOM_PRODUCTIDS_SRC="ProductIDs.py"
+
+log() { echo "[$(date +'%F %T')] $*"; }
+
+trap 'log "FAILED at line $LINENO: $BASH_COMMAND"' ERR
+
+need_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Run as root: sudo $0"
+    exit 1
+  fi
+}
+
+check_arch() {
+  local arch
+  arch=$(dpkg --print-architecture)
+  case "$arch" in
+    arm64|amd64) ;;
+    *)
+      echo "Unsupported CPU architecture: $arch"
+      echo "Bitfocus Companion/Satellite only ship arm64 (or amd64) builds."
+      echo "Re-flash with a 64-bit Raspberry Pi OS image and re-run this installer."
+      exit 1
+      ;;
+  esac
+}
+
+check_sources() {
+  local missing=0
+  for f in \
+    "$CHOOSER_PY_SRC" \
+    "$ICON_COMP_SRC" \
+    "$ICON_SAT_SRC" \
+    "$CUSTOM_DECK_SRC" \
+    "$CUSTOM_DEVICEMANAGER_SRC" \
+    "$CUSTOM_PRODUCTIDS_SRC"
+  do
+    if [[ ! -f "$f" ]]; then
+      echo "Missing file in current folder: $f"
+      missing=1
+    fi
+  done
+  if [[ "$missing" -eq 1 ]]; then
+    echo
+    echo "Put these files next to this installer and run again:"
+    echo " - ${CHOOSER_PY_SRC}"
+    echo " - ${ICON_COMP_SRC}"
+    echo " - ${ICON_SAT_SRC}"
+    echo " - ${CUSTOM_DECK_SRC}"
+    echo " - ${CUSTOM_DEVICEMANAGER_SRC}"
+    echo " - ${CUSTOM_PRODUCTIDS_SRC}"
+    exit 1
+  fi
+}
+
+# ---- APT / DPKG lock handling ----
+wait_for_apt() {
+  # Locks that commonly block apt/dpkg
+  local locks=(
+    "/var/lib/dpkg/lock-frontend"
+    "/var/lib/dpkg/lock"
+    "/var/cache/apt/archives/lock"
+  )
+
+  log "Checking apt/dpkg locks..."
+  while :; do
+    local busy=0
+    for l in "${locks[@]}"; do
+      if fuser "$l" >/dev/null 2>&1; then
+        busy=1
+      fi
+    done
+
+    if [[ "$busy" -eq 0 ]]; then
+      break
+    fi
+
+    # Show who is holding locks (helps debugging)
+    log "APT/DPKG busy (auto updates running?). Waiting..."
+    ps aux | grep -E 'apt|dpkg|unattended|apt\.systemd\.daily' | grep -v grep || true
+    sleep 3
+  done
+  log "Locks are free."
+}
+
+repair_dpkg_if_needed() {
+  # If dpkg was interrupted, this makes apt usable again
+  log "Ensuring dpkg is in a consistent state..."
+  dpkg --configure -a || true
+  apt-get -f install -y || true
+}
+
+apt_install() {
+  export DEBIAN_FRONTEND=noninteractive
+
+  wait_for_apt
+  repair_dpkg_if_needed
+  wait_for_apt
+
+  log "apt update..."
+  apt-get update
+
+  wait_for_apt
+  log "apt upgrade..."
+  apt-get upgrade -y
+
+  wait_for_apt
+  log "Installing packages..."
+  apt-get install -y \
+    curl ca-certificates \
+    python3 python3-venv python3-pil \
+    network-manager \
+    libusb-1.0-0 \
+    libhidapi-hidraw0 \
+    libhidapi-libusb0 \
+    fonts-dejavu-core
+}
+
+CURL_OPTS=(-fsSL --retry 3 --retry-delay 5)
+
+install_bitfocus() {
+  # Both upstream installers pick the latest release for the given channel
+  # from the Bitfocus API; they take no CLI flags, only these env vars.
+  log "Installing Bitfocus Companion (latest stable)..."
+  curl "${CURL_OPTS[@]}" https://raw.githubusercontent.com/bitfocus/companion-pi/main/install.sh | COMPANION_BUILD=stable bash
+
+  log "Installing Bitfocus Satellite (latest stable)..."
+  curl "${CURL_OPTS[@]}" https://raw.githubusercontent.com/bitfocus/companion-satellite/main/pi-image/install.sh | SATELLITE_BUILD=stable bash
+
+  log "Installed Companion build: $(cat /opt/companion/BUILD 2>/dev/null || echo unknown)"
+  log "Installed Satellite build: $(cat /opt/companion-satellite/BUILD 2>/dev/null || echo unknown)"
+}
+
+disable_services() {
+  log "Disabling companion/satellite services..."
+  systemctl disable --now companion 2>/dev/null || true
+  systemctl disable --now satellite 2>/dev/null || true
+}
+
+ensure_plugdev() {
+  log "Ensuring plugdev group + adding users..."
+  getent group plugdev >/dev/null || groupadd plugdev
+
+  # add if users exist (install scripts may vary)
+  getent passwd companion >/dev/null && usermod -aG plugdev companion || true
+  getent passwd satellite >/dev/null && usermod -aG plugdev satellite || true
+}
+
+write_udev_rule() {
+  log "Writing StreamDeck udev rule..."
+  cat > "$UDEV_RULE" <<'EOF'
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0fd9", MODE="0660", GROUP="plugdev"
+EOF
+  udevadm control --reload-rules || true
+  udevadm trigger || true
+}
+
+enable_networkmanager() {
+  log "Enabling NetworkManager..."
+  systemctl enable --now NetworkManager
+}
+
+setup_dirs_and_log() {
+  log "Creating directories..."
+  mkdir -p "$CHOOSER_DIR" "$ICON_DIR" "$CFG_DIR"
+  touch "$LOG_FILE"
+}
+
+setup_venv_and_deps() {
+  log "Setting up Python venv + deps..."
+  if [[ ! -d "$VENV_DIR" ]]; then
+    python3 -m venv "$VENV_DIR"
+  fi
+  "$VENV_DIR/bin/pip3" install --upgrade pip
+  "$VENV_DIR/bin/pip3" install streamdeck hidapi pillow
+}
+
+deploy_custom_streamdeck_modules() {
+  log "Deploying custom StreamDeck modules..."
+  # Auto-detect python3.x site-packages path inside venv
+  local py_lib_dir
+  py_lib_dir=$(ls -d "$VENV_DIR/lib/python3."* 2>/dev/null | head -n1 || true)
+
+  if [[ -z "$py_lib_dir" ]]; then
+    log "WARNING: Could not find python3.x lib dir in venv, skipping custom StreamDeck module deploy."
+    return 0
+  fi
+
+  local pkg_dir="${py_lib_dir}/site-packages/StreamDeck"
+  local dev_dir="${pkg_dir}/Devices"
+
+  mkdir -p "$pkg_dir" "$dev_dir"
+
+  # Overwrite the three modules with your versions
+  install -m 0644 "$CUSTOM_DECK_SRC"          "$dev_dir/StreamDeckPlusXL.py"
+  install -m 0644 "$CUSTOM_DEVICEMANAGER_SRC" "$pkg_dir/DeviceManager.py"
+  install -m 0644 "$CUSTOM_PRODUCTIDS_SRC"    "$pkg_dir/ProductIDs.py"
+
+  log "Custom StreamDeckPlusXL deployed to: $dev_dir"
+  log "Custom DeviceManager/ProductIDs deployed to: $pkg_dir"
+}
+
+deploy_files() {
+  log "Deploying chooser + icons..."
+  install -m 0755 "$CHOOSER_PY_SRC" "$CHOOSER_DIR/menu.py"
+  install -m 0644 "$ICON_COMP_SRC" "$ICON_DIR/comp256x256.png"
+  install -m 0644 "$ICON_SAT_SRC" "$ICON_DIR/sat256x256.png"
+}
+
+write_systemd_service() {
+  log "Writing systemd service: $SERVICE_FILE"
+  cat > "$SERVICE_FILE" <<'EOF'
+[Unit]
+Description=StreamDeck Menu IP selector
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/opt/menu/venv/bin/python3 /opt/menu/menu.py
+Restart=on-failure
+RestartSec=1
+User=root
+WorkingDirectory=/opt/menu
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable menu
+}
+
+main() {
+  need_root
+  check_arch
+  check_sources
+
+  apt_install
+  install_bitfocus
+  disable_services
+  ensure_plugdev
+  write_udev_rule
+  enable_networkmanager
+  setup_dirs_and_log
+  setup_venv_and_deps
+  deploy_custom_streamdeck_modules
+  deploy_files
+  write_systemd_service
+
+  log "DONE."
+  log "Follow logs: journalctl -u menu -f"
+  log "If StreamDeck permissions don't apply yet: replug USB or reboot."
+
+  if [[ -f /var/run/reboot-required ]]; then
+    log "NOTE: A reboot is required (kernel/library update) before changes fully take effect."
+  fi
+}
+
+main "$@"

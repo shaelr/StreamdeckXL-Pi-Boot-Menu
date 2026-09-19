@@ -290,7 +290,7 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable menu
+  systemctl enable --now menu
 }
 
 main() {

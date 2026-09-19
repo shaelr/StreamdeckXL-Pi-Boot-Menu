@@ -97,3 +97,27 @@ Bitfocus's own installer already permits `companion` to run
 (the shell-command-support override — a drop-in specifically because
 Companion's own updater overwrites the base unit file on every update but
 never touches `.d/` override directories).
+
+## Planned work
+
+**Shutdown/reboot keys on the physical menu itself** (in addition to, not
+instead of, the existing Companion-triggered `companion-scripts/shutdown-pi.sh`/
+`reboot-pi.sh`) — agreed worth doing: there's currently no way to safely
+power down/restart while sitting at the menu screen (fresh boot, or just
+back from `back-to-menu.sh`) without SSH access. Easier than the Companion
+versions too, since `menu.py` already runs as root — no sudoers/shell-command
+dance needed, just `subprocess.run(["shutdown", ...])` directly.
+
+Not yet implemented — blocked on the user designing icon assets and testing
+how they read on the physical 36-key grid before wiring up behavior.
+
+Confirmation design, when it happens: don't build a timeout-based "press
+once to arm, confirm within N seconds" flow — that pattern doesn't actually
+exist anywhere in this codebase (a prior session incorrectly assumed the
+IP-edit dial flow worked that way; it doesn't, see `on_dial()`/`_do_apply()`/
+`_do_cancel()`). The real IP-edit safety net is untimed: `editing` mode has
+no expiry at all, and the destructive action (`_do_apply()`, dial 5) only
+fires when a *separate* key (dial 4) has first been pressed to navigate to a
+different page — not a second press of the same control, and no clock
+running either way. Mirror that shape here: a dedicated confirm screen with
+its own CONFIRM/CANCEL keys, sitting untimed, not a countdown.

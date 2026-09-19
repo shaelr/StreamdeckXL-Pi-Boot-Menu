@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Meant to be pointed at by a Companion "Run shell path" button action, as:
-#   sudo /opt/menu/scripts/back-to-menu.sh
+#   sudo /opt/companion-scripts/back-to-menu.sh
 # The companion system user has passwordless sudo for exactly this script
 # (/etc/sudoers.d/091-menu-scripts), since it needs root to stop the
 # service, reset the USB device, and start menu.service.

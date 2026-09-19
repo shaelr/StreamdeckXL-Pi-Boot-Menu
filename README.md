@@ -24,8 +24,8 @@ for setting a static IP or switching back to DHCP.
   pick.
 - Enables Companion's built-in "Run shell command" action (off by default
   upstream) via a systemd drop-in, and deploys three scripts to
-  `/opt/menu/scripts/` for Companion buttons to call: shut down the Pi,
-  reboot it, and hand the Stream Deck back to the menu (see below).
+  `/opt/companion-scripts/` for Companion buttons to call: shut down the
+  Pi, reboot it, and hand the Stream Deck back to the menu (see below).
 
 ## Requirements
 
@@ -59,13 +59,13 @@ sudo ./install.sh
 ## Layout
 
 ```
-install.sh          # one-liner bootstrap: resolves latest release, clones it, hands off to installer/install.sh
+install.sh          # one-liner bootstrap: clones main, hands off to installer/install.sh
 installer/
   install.sh         # the real installer
 menu/
   menu.py            # the menu app, deployed to /opt/menu/menu.py
   icons/             # deployed to /opt/menu/icons/
-  scripts/           # deployed to /opt/menu/scripts/, for Companion buttons to call
+companion-scripts/   # deployed to /opt/companion-scripts/, for Companion buttons to call
 ```
 
 ## After installing
@@ -84,9 +84,9 @@ Shell commands are enabled in Companion, so a button using its internal
 
 | Script | Does |
 | --- | --- |
-| `/opt/menu/scripts/shutdown-pi.sh` | Shuts the Pi down |
-| `/opt/menu/scripts/reboot-pi.sh` | Reboots the Pi |
-| `sudo /opt/menu/scripts/back-to-menu.sh` | Stops Companion, releases the Stream Deck, and starts the menu |
+| `/opt/companion-scripts/shutdown-pi.sh` | Shuts the Pi down |
+| `/opt/companion-scripts/reboot-pi.sh` | Reboots the Pi |
+| `sudo /opt/companion-scripts/back-to-menu.sh` | Stops Companion, releases the Stream Deck, and starts the menu |
 
 The first two just call `sudo /sbin/shutdown`/`/sbin/reboot`, already
 permitted passwordless for the `companion` user by Bitfocus's own installer.

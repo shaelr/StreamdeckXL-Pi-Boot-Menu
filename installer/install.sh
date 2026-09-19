@@ -9,16 +9,17 @@ set -euo pipefail
 #   from the upstream `streamdeck` PyPI package, always installed latest)
 # ==========================================================
 
-# Resolve the app source (menu.py, icons) relative to this script's own
-# location, not the caller's cwd — so this still works when run as
-# `bash installer/install.sh` from elsewhere. They live in ../menu.
+# Resolve the app source (menu.py, icons, companion-scripts) relative to
+# this script's own location, not the caller's cwd — so this still works
+# when run as `bash installer/install.sh` from elsewhere.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MENU_SRC_DIR="$(cd "$SCRIPT_DIR/../menu" && pwd)"
+COMPANION_SCRIPTS_SRC_DIR="$(cd "$SCRIPT_DIR/../companion-scripts" && pwd)"
 
 MENU_INSTALL_DIR="/opt/menu"
 VENV_DIR="${MENU_INSTALL_DIR}/venv"
 ICON_DIR="${MENU_INSTALL_DIR}/icons"
-SCRIPTS_DIR="${MENU_INSTALL_DIR}/scripts"
+SCRIPTS_DIR="/opt/companion-scripts"
 LOG_FILE="/var/log/menu.log"
 CFG_DIR="/etc/menu"
 SERVICE_FILE="/etc/systemd/system/menu.service"
@@ -29,9 +30,9 @@ SUDOERS_FILE="/etc/sudoers.d/091-menu-scripts"
 MENU_PY_SRC="${MENU_SRC_DIR}/menu.py"
 ICON_COMP_SRC="${MENU_SRC_DIR}/icons/comp256x256.png"
 ICON_SAT_SRC="${MENU_SRC_DIR}/icons/sat256x256.png"
-SHUTDOWN_SCRIPT_SRC="${MENU_SRC_DIR}/scripts/shutdown-pi.sh"
-REBOOT_SCRIPT_SRC="${MENU_SRC_DIR}/scripts/reboot-pi.sh"
-BACK_TO_MENU_SCRIPT_SRC="${MENU_SRC_DIR}/scripts/back-to-menu.sh"
+SHUTDOWN_SCRIPT_SRC="${COMPANION_SCRIPTS_SRC_DIR}/shutdown-pi.sh"
+REBOOT_SCRIPT_SRC="${COMPANION_SCRIPTS_SRC_DIR}/reboot-pi.sh"
+BACK_TO_MENU_SCRIPT_SRC="${COMPANION_SCRIPTS_SRC_DIR}/back-to-menu.sh"
 
 log() { echo "[$(date +'%F %T')] $*"; }
 
@@ -75,8 +76,9 @@ check_sources() {
   done
   if [[ "$missing" -eq 1 ]]; then
     echo
-    echo "This looks like an incomplete checkout — the 'menu' directory should"
-    echo "sit alongside 'installer' at the repo root. Re-clone and try again."
+    echo "This looks like an incomplete checkout — the 'menu' and"
+    echo "'companion-scripts' directories should sit alongside 'installer'"
+    echo "at the repo root. Re-clone and try again."
     exit 1
   fi
 }
@@ -253,7 +255,7 @@ write_sudoers_dropin() {
   # sudo /sbin/shutdown|/sbin/reboot, already permitted for the companion
   # user by Bitfocus's own /etc/sudoers.d/090-companion_sudo. back-to-menu.sh
   # needs root itself (to stop the service, reset the USB device, and start
-  # menu.service), so it's invoked as `sudo /opt/menu/scripts/back-to-menu.sh`
+  # menu.service), so it's invoked as `sudo ${SCRIPTS_DIR}/back-to-menu.sh`
   # — this grants exactly that one command, nothing broader.
   log "Writing sudoers drop-in: $SUDOERS_FILE"
   local tmp

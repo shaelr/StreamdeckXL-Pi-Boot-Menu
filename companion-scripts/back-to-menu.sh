@@ -71,27 +71,19 @@ else
   log "USB device path not found, skipping reset"
 fi
 
-# Wait for a fresh hidraw node to reappear (matches menu.py's _wait_for_hidraw).
-found=0
-for _ in $(seq 1 40); do
-  for hr in /sys/class/hidraw/hidraw*; do
-    [[ -e "$hr/device" ]] || continue
-    real="$(readlink -f "$hr/device" 2>/dev/null)" || continue
-    p="$real"
-    while [[ -n "$p" && "$p" != "/" ]]; do
-      if [[ -r "$p/idVendor" ]] && [[ "$(tr '[:upper:]' '[:lower:]' < "$p/idVendor")" == "$HID_VENDOR" ]]; then
-        found=1
-        break 2
-      fi
-      p="$(dirname "$p")"
-    done
-  done
-  [[ "$found" -eq 1 ]] && break
-  sleep 0.2
-done
-[[ "$found" -eq 1 ]] || log "WARNING: hidraw node did not reappear within timeout"
+# No wait-for-hidraw loop here: menu.py accesses the device via libusb
+# directly (confirmed by reading python-elgato-streamdeck's transport
+# source), not through /dev/hidraw, so hidraw reappearing was never
+# actually what menu.py depends on -- it only exists in the brief window
+# where nothing has claimed the device via libusb yet. menu.py already
+# retries DeviceManager().enumerate() once a second on its own startup
+# loop until the device shows up, so there's nothing useful to wait for
+# here. An earlier version of this script polled for a hidraw node
+# anyway; on real hardware that polling loop itself was observed taking
+# up to ~30s (heavy on external `readlink`/`dirname` forks) even though
+# it wasn't checking anything menu.py needed, so it's been removed.
 
-# Give udev a moment to apply permission rules.
+# Give udev a moment to apply permission rules after the USB reset.
 sleep 0.5
 
 log "Starting menu..."

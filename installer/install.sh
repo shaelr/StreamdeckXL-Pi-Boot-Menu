@@ -6,7 +6,7 @@ set -euo pipefail
 # - Waits for apt/dpkg locks (prevents lock-frontend errors)
 # - Repairs half-configured dpkg state if needed
 # - Deploys the chooser app into a venv (Stream Deck + XL support comes
-#   from the upstream `streamdeck` PyPI package, pinned to a tested version)
+#   from the upstream `streamdeck` PyPI package, always installed latest)
 # ==========================================================
 
 # Resolve the app source (menu.py, icons) relative to this script's own
@@ -22,15 +22,6 @@ LOG_FILE="/var/log/menu.log"
 CFG_DIR="/etc/menu"
 SERVICE_FILE="/etc/systemd/system/menu.service"
 UDEV_RULE="/etc/udev/rules.d/70-streamdeck.rules"
-
-# Pinned exactly, not a floor: menu.py's touchscreen drawing (update_lcd)
-# is written against this specific version's PILHelper/rotation behavior,
-# verified by reading upstream source, not by testing on hardware. An
-# open-ended ">=" would silently pull in a future release that changes
-# that behavior again (streamdeck has done this before — PILHelper's
-# to_native_format was renamed/deprecated between releases). Bump this
-# deliberately, and re-verify menu.py's touchscreen code, when upgrading.
-STREAMDECK_VERSION="0.10.0"
 
 CHOOSER_PY_SRC="${MENU_SRC_DIR}/menu.py"
 ICON_COMP_SRC="${MENU_SRC_DIR}/icons/comp256x256.png"
@@ -200,7 +191,10 @@ setup_venv_and_deps() {
     python3 -m venv "$VENV_DIR"
   fi
   "$VENV_DIR/bin/pip3" install --upgrade pip
-  "$VENV_DIR/bin/pip3" install "streamdeck==${STREAMDECK_VERSION}" hidapi pillow
+  # Always latest, deliberately unpinned. If the touchscreen ever renders
+  # wrong/rotated after a fresh install, check here first — menu.py's
+  # update_lcd() was written against 0.10.0's PILHelper/rotation behavior.
+  "$VENV_DIR/bin/pip3" install streamdeck hidapi pillow
 
   local installed_version
   installed_version=$("$VENV_DIR/bin/pip3" show streamdeck 2>/dev/null | awk '/^Version:/{print $2}')

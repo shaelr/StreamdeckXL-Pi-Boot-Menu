@@ -12,11 +12,12 @@ for setting a static IP or switching back to DHCP.
   Bitfocus's own installers), but leaves both services disabled — the menu
   decides which one runs.
 - Installs the [python-elgato-streamdeck](https://github.com/abcminiuser/python-elgato-streamdeck)
-  library into a dedicated venv, pinned to an exact version (`streamdeck==0.10.0`,
-  the first PyPI release with native Stream Deck + XL support) — `menu.py`'s
-  touchscreen drawing depends on that version's specific API/rotation
-  behavior, so upgrading it requires re-verifying that code, not just
-  bumping a floor.
+  library into a dedicated venv, always the latest release from PyPI (native
+  Stream Deck + XL support landed in `0.10.0`). This is deliberately
+  unpinned, so `menu.py`'s touchscreen drawing — written against `0.10.0`'s
+  specific PILHelper/rotation behavior — is the first place to check if the
+  touchscreen ever renders wrong after a fresh install following a future
+  `streamdeck` release.
 - Installs the menu app itself as a systemd service (`menu.service`) that
   starts on boot, shows COMPANION/SATELLITE keys plus a network-config
   touchscreen, and hands off the USB device cleanly to whichever service you

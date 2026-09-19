@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/ma
 
 This looks up the latest [GitHub Release](../../releases) of this repo,
 clones that tag to a temp directory, and runs
-[`Installer/Installer.sh`](Installer/Installer.sh) from it, which does a full
+[`installer/install.sh`](installer/install.sh) from it, which does a full
 `apt update`/`upgrade`, installs Companion + Satellite, deploys the menu app,
 and enables everything to start on boot. `main` can move ahead independently —
 only tagged releases get installed by the one-liner.
@@ -46,8 +46,19 @@ directly:
 
 ```bash
 git clone --branch <tag> https://github.com/shaelr/StreamdeckXL-Pi-Boot-Menu.git
-cd StreamdeckXL-Pi-Boot-Menu/Installer
-sudo ./Installer.sh
+cd StreamdeckXL-Pi-Boot-Menu/installer
+sudo ./install.sh
+```
+
+## Layout
+
+```
+install.sh          # one-liner bootstrap: resolves latest release, clones it, hands off to installer/install.sh
+installer/
+  install.sh         # the real installer
+menu/
+  menu.py            # the chooser app, deployed to /opt/menu/menu.py
+  icons/             # deployed to /opt/menu/icons/
 ```
 
 ## After installing

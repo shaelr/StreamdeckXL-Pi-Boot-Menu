@@ -6,9 +6,8 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/main/install.sh | sudo bash
 #
 # Looks up the latest GitHub Release (not just main HEAD), clones that
-# tag to a temp dir, and runs the real installer (Installer/Installer.sh)
-# from there, so it has all the sibling files (menu.py, icons, custom
-# StreamDeck modules) it needs alongside it.
+# tag to a temp dir, and runs the real installer (installer/install.sh)
+# from there, so it can find the app source in ../menu alongside it.
 # ==========================================================
 
 REPO="shaelr/StreamdeckXL-Pi-Boot-Menu"
@@ -44,4 +43,4 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 echo "Cloning ${REPO_URL} @ ${TAG}..."
 git clone --depth 1 --branch "$TAG" "$REPO_URL" "$TMP_DIR/repo"
 
-exec bash "$TMP_DIR/repo/Installer/Installer.sh"
+exec bash "$TMP_DIR/repo/installer/install.sh"

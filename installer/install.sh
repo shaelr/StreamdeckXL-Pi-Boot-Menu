@@ -9,10 +9,11 @@ set -euo pipefail
 #   comes from the upstream `streamdeck` PyPI package, >=0.10.0)
 # ==========================================================
 
-# Resolve sibling source files (menu.py, icons) relative to this script's
-# own location, not the caller's cwd — so this still works when run as
-# `bash Installer/Installer.sh` from elsewhere.
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the app source (menu.py, icons) relative to this script's own
+# location, not the caller's cwd — so this still works when run as
+# `bash installer/install.sh` from elsewhere. They live in ../menu.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MENU_SRC_DIR="$(cd "$SCRIPT_DIR/../menu" && pwd)"
 
 CHOOSER_DIR="/opt/menu"
 VENV_DIR="${CHOOSER_DIR}/venv"
@@ -25,9 +26,9 @@ UDEV_RULE="/etc/udev/rules.d/70-streamdeck.rules"
 # Stream Deck + XL support landed upstream in streamdeck 0.10.0.
 STREAMDECK_MIN_VERSION="0.10.0"
 
-CHOOSER_PY_SRC="menu.py"
-ICON_COMP_SRC="comp256x256.png"
-ICON_SAT_SRC="sat256x256.png"
+CHOOSER_PY_SRC="${MENU_SRC_DIR}/menu.py"
+ICON_COMP_SRC="${MENU_SRC_DIR}/icons/comp256x256.png"
+ICON_SAT_SRC="${MENU_SRC_DIR}/icons/sat256x256.png"
 
 log() { echo "[$(date +'%F %T')] $*"; }
 
@@ -62,16 +63,14 @@ check_sources() {
     "$ICON_SAT_SRC"
   do
     if [[ ! -f "$f" ]]; then
-      echo "Missing file in current folder: $f"
+      echo "Missing file: $f"
       missing=1
     fi
   done
   if [[ "$missing" -eq 1 ]]; then
     echo
-    echo "Put these files next to this installer and run again:"
-    echo " - ${CHOOSER_PY_SRC}"
-    echo " - ${ICON_COMP_SRC}"
-    echo " - ${ICON_SAT_SRC}"
+    echo "This looks like an incomplete checkout — the 'menu' directory should"
+    echo "sit alongside 'installer' at the repo root. Re-clone and try again."
     exit 1
   fi
 }

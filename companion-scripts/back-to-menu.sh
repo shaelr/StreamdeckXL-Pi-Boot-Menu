@@ -25,6 +25,21 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+# Companion spawns this script as a child of its own process, which means
+# it inherits companion.service's cgroup — plain backgrounding (&, nohup,
+# setsid) does NOT escape a cgroup, only an explicit move does. Without
+# detaching first, `systemctl stop companion` below kills companion AND
+# this script together (systemd's default KillMode=control-group kills
+# everything in the unit's cgroup on stop), so the script never reaches
+# the USB reset or `systemctl start menu`, and Companion never gets a
+# clean shutdown to release the device. Re-exec into an independent
+# transient unit before doing anything else so this survives that kill.
+if [[ -z "${MENU_HANDOFF_DETACHED:-}" ]]; then
+  exec systemd-run --unit="menu-handoff-$$" --collect \
+    --setenv=MENU_HANDOFF_DETACHED=1 \
+    "$0" "$@"
+fi
+
 for svc in companion satellite; do
   if systemctl is-active --quiet "$svc"; then
     log "Stopping $svc..."

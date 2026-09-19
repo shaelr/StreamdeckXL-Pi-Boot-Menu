@@ -48,6 +48,16 @@ def run(cmd, timeout=10):
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True, timeout=timeout)
 
+def run_logged(cmd, timeout=10):
+    """Like run(), but logs a warning with stderr on a non-zero exit.
+    Only worth the log noise for mutating nmcli calls, not the frequent
+    read-only polling ones (nm_conn/get_ip_prefix), where a transient
+    non-zero exit is normal."""
+    r = run(cmd, timeout=timeout)
+    if r.returncode != 0:
+        log(f"command failed (exit {r.returncode}): {' '.join(cmd)} -- {r.stderr.strip()}")
+    return r
+
 # ---------- nmcli connection cache ----------
 _nm_conn_cache = None
 _nm_conn_time  = 0.0
@@ -158,14 +168,14 @@ def nm_set_dhcp(enable: bool):
         log("No active NM connection; cannot set DHCP.")
         return False
     if enable:
-        run(["nmcli", "con", "mod", c,
+        run_logged(["nmcli", "con", "mod", c,
              "ipv4.method", "auto", "ipv4.addresses", "",
              "ipv4.gateway", "", "ipv4.dns", "",
              "ipv4.ignore-auto-dns", "no"], timeout=10)
     else:
-        run(["nmcli", "con", "mod", c, "ipv4.method", "manual"], timeout=10)
-    run(["nmcli", "dev", "disconnect", ETH_DEV], timeout=8)
-    run(["nmcli", "dev", "connect",    ETH_DEV], timeout=10)
+        run_logged(["nmcli", "con", "mod", c, "ipv4.method", "manual"], timeout=10)
+    run_logged(["nmcli", "dev", "disconnect", ETH_DEV], timeout=8)
+    run_logged(["nmcli", "dev", "connect",    ETH_DEV], timeout=10)
     _invalidate_nm_cache()
     return True
 
@@ -175,12 +185,12 @@ def apply_nm(ip, prefix):
         log("No active NM connection; skipping apply (JSON still saved).")
         return
     addr = f"{ip[0]}.{ip[1]}.{ip[2]}.{ip[3]}/{prefix}"
-    run(["nmcli", "con", "mod", c,
+    run_logged(["nmcli", "con", "mod", c,
          "ipv4.method", "manual", "ipv4.addresses", addr,
          "ipv4.gateway", gw(ip), "ipv4.dns", gw(ip),
          "ipv4.ignore-auto-dns", "yes"], timeout=10)
-    run(["nmcli", "dev", "disconnect", ETH_DEV], timeout=8)
-    run(["nmcli", "dev", "connect",    ETH_DEV], timeout=10)
+    run_logged(["nmcli", "dev", "disconnect", ETH_DEV], timeout=8)
+    run_logged(["nmcli", "dev", "connect",    ETH_DEV], timeout=10)
     _invalidate_nm_cache()
 
 def ip_ok(ip):
@@ -310,11 +320,29 @@ def enter_edit():
         edit_mask = cur_mask[:]
     return True
 
+def _reset_edit_state():
+    global editing, dial_page
+    editing   = False
+    dial_page = "ip"
+    refresh_current()
+    edit_ip[:]   = cur_ip[:]
+    edit_mask[:] = cur_mask[:]
+    redraw()
+
+# Serializes the blocking nmcli work (apply static IP / toggle DHCP) onto a
+# background thread so it doesn't stall the StreamDeck's USB read thread —
+# dial/key callbacks run synchronously on that thread, so without this a
+# single IP change could freeze all input for up to ~30s. Non-blocking
+# acquire: a press that arrives while one is already running is dropped
+# rather than queued, since starting overlapping nmcli calls isn't safe.
+_network_op_lock = threading.Lock()
+
 # ---------- static keys (draw once at startup) ----------
 def draw_static_keys():
     with deck_lock:
+        blank = blank_key(deck)
         for k in range(36):
-            deck.set_key_image(k, blank_key(deck))
+            deck.set_key_image(k, blank)
         deck.set_key_image(KEY_LEFT,  img_icon(deck, LEFT_START_LABEL,  (0, 60, 140), LEFT_START_ICON))
         deck.set_key_image(KEY_RIGHT, img_icon(deck, RIGHT_START_LABEL, (0, 60, 140), RIGHT_START_ICON))
 
@@ -327,57 +355,48 @@ def redraw():
             deck.set_key_image(KEY_DHCP, img_text(deck, "Manual", (0, 80, 150)))
     update_lcd()
 
-# ---------- Hold logic ----------
-_hold = {}
 active_key      = None
 active_key_lock = threading.Lock()
 
-def stop_all_holds():
-    for _, ev in list(_hold.items()):
-        ev.set()
-    _hold.clear()
-
 # ---------- Dial helpers ----------
+def _apply_worker(ip, mask, pref):
+    global dhcp_on
+    try:
+        write_json(ip, mask)
+        apply_nm(ip, pref)
+        if wait_ip_change(ip):
+            flash_ok((0, 120, 0), "APPLIED")
+        else:
+            flash_ok((150, 0, 0), "TIMEOUT")
+        dhcp_on = False
+        _reset_edit_state()
+    except Exception as e:
+        log(f"apply worker error: {e}")
+    finally:
+        _network_op_lock.release()
+
 def _do_apply():
-    global editing, dial_page, dhcp_on
     if not editing:
         return
-    stop_all_holds()
     pref = mask_to_prefix_if_valid(edit_mask)
     if (not ip_ok(edit_ip)) or (pref is None):
         flash_ok((150, 0, 0), "BAD IP")
         return
-    write_json(edit_ip, edit_mask)
-    apply_nm(edit_ip, pref)
-    if wait_ip_change(edit_ip):
-        flash_ok((0, 120, 0), "APPLIED")
-    else:
-        flash_ok((150, 0, 0), "TIMEOUT")
-    editing   = False
-    dial_page = "ip"
-    dhcp_on   = False
-    refresh_current()
-    edit_ip[:]   = cur_ip[:]
-    edit_mask[:] = cur_mask[:]
-    redraw()
+    if not _network_op_lock.acquire(blocking=False):
+        return
+    threading.Thread(target=_apply_worker, args=(edit_ip[:], edit_mask[:], pref), daemon=True).start()
 
 def _do_cancel():
-    global editing, dial_page
     if not editing:
         return
-    editing   = False
-    dial_page = "ip"
-    refresh_current()
-    edit_ip[:]   = cur_ip[:]
-    edit_mask[:] = cur_mask[:]
-    redraw()
+    _reset_edit_state()
 
 # ---------- Dial callback ----------
 def on_dial(_, dial, event, value):
     global editing, dial_page
 
     if event == DialEventType.TURN:
-        if dhcp_on or dial > 3:
+        if dhcp_on or dial > 3 or _network_op_lock.locked():
             return
         enter_edit()
         if dial_page == "ip":
@@ -444,7 +463,6 @@ def _wait_for_hidraw(timeout=8):
 
 
 def handoff_to(service_name: str):
-    stop_all_holds()
     global active_key
     with active_key_lock:
         active_key = None
@@ -516,8 +534,36 @@ def handoff_to(service_name: str):
     time.sleep(1)
     sys.exit(0)
 # ---------- Keys ----------
+def _dhcp_to_manual_worker(ip, mask, pref):
+    global dhcp_on
+    try:
+        write_json(ip, mask)
+        apply_nm(ip, pref)
+        wait_ip_change(ip)
+        dhcp_on = False
+        _reset_edit_state()
+        enter_edit()
+        update_lcd()
+    except Exception as e:
+        log(f"dhcp-to-manual worker error: {e}")
+    finally:
+        _network_op_lock.release()
+
+def _manual_to_dhcp_worker():
+    global dhcp_on
+    try:
+        ok = nm_set_dhcp(True)
+        dhcp_on = True
+        _reset_edit_state()
+        if not ok:
+            flash_ok((150, 0, 0), "NO NM")
+    except Exception as e:
+        log(f"manual-to-dhcp worker error: {e}")
+    finally:
+        _network_op_lock.release()
+
 def on_key(_, key, pressed):
-    global editing, active_key, dhcp_on, dial_page
+    global active_key
 
     if not pressed:
         with active_key_lock:
@@ -531,7 +577,6 @@ def on_key(_, key, pressed):
         active_key = key
 
     if key == KEY_DHCP:
-        stop_all_holds()
         refresh_dhcp_state()
         if dhcp_on:
             # Switch DHCP -> Manual
@@ -542,30 +587,14 @@ def on_key(_, key, pressed):
                 refresh_current()
                 redraw()
                 return
-            write_json(ip, mask)
-            apply_nm(ip, pref)
-            wait_ip_change(ip)
-            dhcp_on   = False
-            editing   = False
-            dial_page = "ip"
-            refresh_current()
-            edit_ip[:]   = cur_ip[:]
-            edit_mask[:] = cur_mask[:]
-            redraw()
-            enter_edit()
-            update_lcd()
+            if not _network_op_lock.acquire(blocking=False):
+                return
+            threading.Thread(target=_dhcp_to_manual_worker, args=(ip, mask, pref), daemon=True).start()
         else:
             # Switch Manual -> DHCP
-            ok        = nm_set_dhcp(True)
-            dhcp_on   = True
-            editing   = False
-            dial_page = "ip"
-            refresh_current()
-            edit_ip[:]   = cur_ip[:]
-            edit_mask[:] = cur_mask[:]
-            redraw()
-            if not ok:
-                flash_ok((150, 0, 0), "NO NM")
+            if not _network_op_lock.acquire(blocking=False):
+                return
+            threading.Thread(target=_manual_to_dhcp_worker, daemon=True).start()
         return
 
     if key == KEY_LEFT:

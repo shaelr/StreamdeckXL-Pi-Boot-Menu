@@ -127,12 +127,18 @@ apt_install() {
   log "Installing packages..."
   apt-get install -y \
     curl ca-certificates \
-    python3 python3-venv python3-pil \
+    python3 python3-venv \
     network-manager \
     libusb-1.0-0 \
     libhidapi-hidraw0 \
     libhidapi-libusb0 \
     fonts-dejavu-core
+}
+
+cleanup_apt() {
+  log "Cleaning up apt caches..."
+  apt-get autoremove -y || true
+  apt-get clean || true
 }
 
 CURL_OPTS=(-fsSL --retry 3 --retry-delay 5)
@@ -247,6 +253,7 @@ main() {
   setup_venv_and_deps
   deploy_files
   write_systemd_service
+  cleanup_apt
 
   log "DONE."
   log "Follow logs: journalctl -u menu -f"

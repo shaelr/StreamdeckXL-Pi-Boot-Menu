@@ -22,6 +22,10 @@ for setting a static IP or switching back to DHCP.
   starts on boot, shows COMPANION/SATELLITE keys plus a network-config
   touchscreen, and hands off the USB device cleanly to whichever service you
   pick.
+- Enables Companion's built-in "Run shell command" action (off by default
+  upstream) via a systemd drop-in, and deploys three scripts to
+  `/opt/menu/scripts/` for Companion buttons to call: shut down the Pi,
+  reboot it, and hand the Stream Deck back to the menu (see below).
 
 ## Requirements
 
@@ -63,6 +67,7 @@ installer/
 menu/
   menu.py            # the menu app, deployed to /opt/menu/menu.py
   icons/             # deployed to /opt/menu/icons/
+  scripts/           # deployed to /opt/menu/scripts/, for Companion buttons to call
 ```
 
 ## After installing
@@ -73,3 +78,25 @@ menu/
 - Left key hands off to Companion, right key to Satellite; the touchscreen
   dials edit IP/mask, with buttons to switch between DHCP and a manual static
   address.
+
+### Companion "Run shell path" buttons
+
+Shell commands are enabled in Companion, so a button using its internal
+**Run shell path** action can point at:
+
+| Script | Does |
+| --- | --- |
+| `/opt/menu/scripts/shutdown-pi.sh` | Shuts the Pi down |
+| `/opt/menu/scripts/reboot-pi.sh` | Reboots the Pi |
+| `sudo /opt/menu/scripts/back-to-menu.sh` | Stops Companion, releases the Stream Deck, and starts the menu |
+
+The first two just call `sudo /sbin/shutdown`/`/sbin/reboot`, already
+permitted passwordless for the `companion` user by Bitfocus's own installer.
+`back-to-menu.sh` needs root itself (to reset the USB device and switch
+services), so its button must include the leading `sudo` — the installer
+grants exactly that one command passwordless via a dedicated sudoers
+drop-in, nothing broader. It stops whichever surface service is running,
+then deauthorizes/reauthorizes the Stream Deck's USB port so a fresh device
+node appears free of any stale state from Companion's session — the same
+release dance `menu.py` does when handing off in the other direction —
+before starting `menu.service`.

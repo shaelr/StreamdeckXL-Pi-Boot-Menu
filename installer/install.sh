@@ -18,14 +18,20 @@ MENU_SRC_DIR="$(cd "$SCRIPT_DIR/../menu" && pwd)"
 MENU_INSTALL_DIR="/opt/menu"
 VENV_DIR="${MENU_INSTALL_DIR}/venv"
 ICON_DIR="${MENU_INSTALL_DIR}/icons"
+SCRIPTS_DIR="${MENU_INSTALL_DIR}/scripts"
 LOG_FILE="/var/log/menu.log"
 CFG_DIR="/etc/menu"
 SERVICE_FILE="/etc/systemd/system/menu.service"
 UDEV_RULE="/etc/udev/rules.d/70-streamdeck.rules"
+COMPANION_OVERRIDE_DIR="/etc/systemd/system/companion.service.d"
+SUDOERS_FILE="/etc/sudoers.d/091-menu-scripts"
 
 MENU_PY_SRC="${MENU_SRC_DIR}/menu.py"
 ICON_COMP_SRC="${MENU_SRC_DIR}/icons/comp256x256.png"
 ICON_SAT_SRC="${MENU_SRC_DIR}/icons/sat256x256.png"
+SHUTDOWN_SCRIPT_SRC="${MENU_SRC_DIR}/scripts/shutdown-pi.sh"
+REBOOT_SCRIPT_SRC="${MENU_SRC_DIR}/scripts/reboot-pi.sh"
+BACK_TO_MENU_SCRIPT_SRC="${MENU_SRC_DIR}/scripts/back-to-menu.sh"
 
 log() { echo "[$(date +'%F %T')] $*"; }
 
@@ -57,7 +63,10 @@ check_sources() {
   for f in \
     "$MENU_PY_SRC" \
     "$ICON_COMP_SRC" \
-    "$ICON_SAT_SRC"
+    "$ICON_SAT_SRC" \
+    "$SHUTDOWN_SCRIPT_SRC" \
+    "$REBOOT_SCRIPT_SRC" \
+    "$BACK_TO_MENU_SCRIPT_SRC"
   do
     if [[ ! -f "$f" ]]; then
       echo "Missing file: $f"
@@ -162,6 +171,23 @@ disable_services() {
   systemctl disable --now satellite 2>/dev/null || true
 }
 
+configure_companion() {
+  # Enables Companion's built-in "Run shell command"/"Run shell path" action
+  # via its documented COMPANION_ENABLE_SHELL_COMMAND_SUPPORT env var
+  # (https://companion.free .../config-reference, off by default for
+  # security). Set as a systemd drop-in rather than editing Companion's own
+  # config.yaml or config-tool.js: companion-pi's updater overwrites
+  # /etc/systemd/system/companion.service on every update, but never touches
+  # a .d/ override directory, so this survives updates untouched.
+  log "Enabling Companion shell-command support (systemd override)..."
+  mkdir -p "$COMPANION_OVERRIDE_DIR"
+  cat > "$COMPANION_OVERRIDE_DIR/menu-overrides.conf" <<'EOF'
+[Service]
+Environment=COMPANION_ENABLE_SHELL_COMMAND_SUPPORT=true
+EOF
+  systemctl daemon-reload
+}
+
 ensure_plugdev() {
   log "Ensuring plugdev group + adding users..."
   getent group plugdev >/dev/null || groupadd plugdev
@@ -214,6 +240,33 @@ deploy_files() {
   install -m 0644 "$ICON_SAT_SRC" "$ICON_DIR/sat256x256.png"
 }
 
+deploy_scripts() {
+  log "Deploying Companion-triggerable scripts to $SCRIPTS_DIR..."
+  mkdir -p "$SCRIPTS_DIR"
+  install -m 0755 "$SHUTDOWN_SCRIPT_SRC"     "$SCRIPTS_DIR/shutdown-pi.sh"
+  install -m 0755 "$REBOOT_SCRIPT_SRC"       "$SCRIPTS_DIR/reboot-pi.sh"
+  install -m 0755 "$BACK_TO_MENU_SCRIPT_SRC" "$SCRIPTS_DIR/back-to-menu.sh"
+}
+
+write_sudoers_dropin() {
+  # shutdown-pi.sh/reboot-pi.sh need no new grant: they just call
+  # sudo /sbin/shutdown|/sbin/reboot, already permitted for the companion
+  # user by Bitfocus's own /etc/sudoers.d/090-companion_sudo. back-to-menu.sh
+  # needs root itself (to stop the service, reset the USB device, and start
+  # menu.service), so it's invoked as `sudo /opt/menu/scripts/back-to-menu.sh`
+  # — this grants exactly that one command, nothing broader.
+  log "Writing sudoers drop-in: $SUDOERS_FILE"
+  local tmp
+  tmp="$(mktemp)"
+  echo "companion ALL=NOPASSWD: ${SCRIPTS_DIR}/back-to-menu.sh" > "$tmp"
+  if visudo -cf "$tmp" >/dev/null 2>&1; then
+    install -m 0440 -o root -g root "$tmp" "$SUDOERS_FILE"
+  else
+    log "WARNING: generated sudoers file failed validation, not installing it."
+  fi
+  rm -f "$tmp"
+}
+
 write_systemd_service() {
   log "Writing systemd service: $SERVICE_FILE"
   cat > "$SERVICE_FILE" <<'EOF'
@@ -245,6 +298,7 @@ main() {
 
   apt_install
   install_bitfocus
+  configure_companion
   disable_services
   ensure_plugdev
   write_udev_rule
@@ -252,12 +306,18 @@ main() {
   setup_dirs_and_log
   setup_venv_and_deps
   deploy_files
+  deploy_scripts
+  write_sudoers_dropin
   write_systemd_service
   cleanup_apt
 
   log "DONE."
   log "Follow logs: journalctl -u menu -f"
   log "If StreamDeck permissions don't apply yet: replug USB or reboot."
+  log "In Companion, point 'Run shell path' buttons at:"
+  log "  ${SCRIPTS_DIR}/shutdown-pi.sh"
+  log "  ${SCRIPTS_DIR}/reboot-pi.sh"
+  log "  sudo ${SCRIPTS_DIR}/back-to-menu.sh   (note the leading 'sudo')"
 
   if [[ -f /var/run/reboot-required ]]; then
     log "NOTE: A reboot is required (kernel/library update) before changes fully take effect."

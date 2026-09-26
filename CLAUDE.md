@@ -135,8 +135,13 @@ show up), and on press runs `timedatectl set-timezone` directly (it's root) and
 calls `time.tzset()` so its own log timestamps follow. Setting the zone from the
 menu *before* handing off means Companion starts fresh in it; that's why this
 avoids the Companion restart the README's manual Companion timezone buttons
-need. `img_text()` steps the font down (24 → 20 → 16px) so labels like
-MOUNTAIN fit a 112px key. Not yet verified on hardware.
+need. Not yet verified on hardware.
+
+**Key text is one size everywhere** (user's rule): every key uses `KEY_FONT`,
+which `menu.py` sizes at startup to the largest font where every entry in
+`KEY_TEXTS` plus the timezone labels fits the key width. With DejaVu Sans that's
+16px, set by COMPANION. New key or flash text must be added to `KEY_TEXTS`.
+The touchscreen strip uses its own `FONT_LCD` (28px).
 
 **Notable paths on the target Pi:** `/opt/sdpi` (the git checkout sdpi runs
 from), `/opt/menu` (venv + `menu.py` + icons), `/opt/companion-scripts` (the

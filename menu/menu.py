@@ -259,32 +259,38 @@ def load_font(sz):
     p = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     return ImageFont.truetype(p, sz) if Path(p).exists() else ImageFont.load_default()
 
-FONT_BIG = load_font(24)
-FONT_MID = load_font(20)
-FONT_SML = load_font(16)
 FONT_LCD = load_font(28)
 
-def fit_font(d, text, max_w):
-    """Largest key font that fits `text` in max_w pixels, with its bbox."""
-    for font in (FONT_BIG, FONT_MID, FONT_SML):
-        bb = d.textbbox((0, 0), text, font=font)
-        if bb[2] - bb[0] <= max_w:
-            return font, bb
-    return FONT_SML, d.textbbox((0, 0), text, font=FONT_SML)
+# Every text that can appear on a key. All keys share KEY_FONT, sized at startup
+# so the longest of these (plus the timezone labels) fits; add new key/flash
+# text here or it may not fit.
+KEY_TEXTS = [LEFT_START_LABEL, RIGHT_START_LABEL, "DHCP", "Manual",
+             "APPLIED", "TIMEOUT", "BAD IP", "BAD JSON", "NO NM"]
+KEY_FONT = load_font(16)
+
+def pick_key_font(labels, max_w):
+    """Largest font (24px down) at which every label fits in max_w pixels."""
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    for size in range(24, 9, -1):
+        font = load_font(size)
+        if all(probe.textbbox((0, 0), t, font=font)[2] - probe.textbbox((0, 0), t, font=font)[0] <= max_w
+               for t in labels):
+            return font
+    return load_font(10)
 
 def img_text(deck, text, bg, sub=None):
     w, h = deck.key_image_format()["size"]
     im = Image.new("RGB", (w, h), bg)
     d  = ImageDraw.Draw(im)
     if text:
-        font, bb = fit_font(d, text, w - 8)
+        bb = d.textbbox((0, 0), text, font=KEY_FONT)
         tw, th = bb[2] - bb[0], bb[3] - bb[1]
         y = (h - th) // 2 - (6 if sub else 0)
-        d.text(((w - tw) // 2, y), text, font=font, fill=(255, 255, 255))
+        d.text(((w - tw) // 2, y), text, font=KEY_FONT, fill=(255, 255, 255))
     if sub:
-        bb2 = d.textbbox((0, 0), sub, font=FONT_SML)
+        bb2 = d.textbbox((0, 0), sub, font=KEY_FONT)
         sw, sh = bb2[2] - bb2[0], bb2[3] - bb2[1]
-        d.text(((w - sw) // 2, h - sh - 6), sub, font=FONT_SML, fill=(255, 255, 255))
+        d.text(((w - sw) // 2, h - sh - 6), sub, font=KEY_FONT, fill=(255, 255, 255))
     return PILHelper.to_native_key_format(deck, im)
 
 def img_icon(deck, label, bg, path):
@@ -297,9 +303,9 @@ def img_icon(deck, label, bg, path):
     except Exception as e:
         log(f"icon load failed '{path}': {e}")
     d  = ImageDraw.Draw(im)
-    bb = d.textbbox((0, 0), label, font=FONT_SML)
+    bb = d.textbbox((0, 0), label, font=KEY_FONT)
     tw, th = bb[2] - bb[0], bb[3] - bb[1]
-    d.text(((w - tw) // 2, h - th - 6), label, font=FONT_SML, fill=(255, 255, 255))
+    d.text(((w - tw) // 2, h - th - 6), label, font=KEY_FONT, fill=(255, 255, 255))
     return PILHelper.to_native_key_format(deck, im)
 
 def blank_key(deck):
@@ -713,6 +719,8 @@ deck.set_touchscreen_callback(on_touch)
 
 tz_buttons  = load_timezone_buttons()
 active_zone = current_zone()
+KEY_FONT    = pick_key_font(KEY_TEXTS + [label for _, label, _ in tz_buttons],
+                            deck.key_image_format()["size"][0] - 8)
 draw_static_keys()
 redraw()
 

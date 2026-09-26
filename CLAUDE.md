@@ -43,7 +43,7 @@ the new code. The one-liner uses `bash -c "$(curl ...)"` so stdin stays the
 keyboard; `sdpi` also reattaches to `/dev/tty` if launched via `curl | bash`.
 
 **`sdpi`** is a numbered text menu (Install / Update / Remove / Advanced) over
-`MODULES=(menu companion satellite companion_scripts rtc)`. Each
+`MODULES=(menu timezone companion satellite companion_scripts rtc)`. Each
 `modules/<id>.sh` defines `<id>_label`, `<id>_installed`, `<id>_detail`,
 `<id>_install`, `<id>_remove`, and optionally `<id>_update`. Status comes from
 the Pi's actual state (unit files, BUILD files, the config.txt overlay line),
@@ -126,6 +126,18 @@ specific `PILHelper`/rotation behavior. If the touchscreen ever renders
 wrong/rotated after an update, that version-behavior coupling is the first
 thing to check, not a StreamDeck+XL hardware issue.
 
+**Timezone buttons:** the `timezone` module just writes/removes
+`/etc/menu/timezones.json` (a `[{label, zone}]` list, the user's five by
+default) and restarts the menu; `menu.py` does the rest. With the file present
+it centres up to 9 text keys on the top row, lights the active zone (read from
+the `/etc/localtime` symlink, rechecked every refresh tick so SSH/sdpi changes
+show up), and on press runs `timedatectl set-timezone` directly (it's root) and
+calls `time.tzset()` so its own log timestamps follow. Setting the zone from the
+menu *before* handing off means Companion starts fresh in it; that's why this
+avoids the Companion restart the README's manual Companion timezone buttons
+need. `img_text()` steps the font down (24 → 20 → 16px) so labels like
+MOUNTAIN fit a 112px key. Not yet verified on hardware.
+
 **Notable paths on the target Pi:** `/opt/sdpi` (the git checkout sdpi runs
 from), `/opt/menu` (venv + `menu.py` + icons), `/opt/companion-scripts` (the
 three Companion-triggerable scripts — kept separate from `/opt/menu` since
@@ -144,15 +156,6 @@ need a reboot; sdpi shows a banner and offers to reboot on quit).
 
 ## Planned work
 
-**Timezone buttons on the physical menu**, installed as an sdpi feature (the
-installer question for it was deliberately deferred until the buttons exist).
-Setting the zone from the menu *before* handing off means Companion starts
-fresh in the right zone, avoiding the Companion-restart workaround the README's
-manual Companion timezone buttons need. `menu.py` runs as root, so it can call
-`timedatectl set-timezone` directly with no sudoers grant. The user's zone set:
-Eastern `America/New_York`, Central `America/Chicago`, Mountain
-`America/Denver`, Pacific `America/Los_Angeles`, Arizona `America/Phoenix`.
-
 **Shutdown/reboot keys on the physical menu itself** (in addition to, not
 instead of, the existing Companion-triggered `companion-scripts/shutdown-pi.sh`/
 `reboot-pi.sh`) — agreed worth doing: there's currently no way to safely
@@ -161,8 +164,9 @@ back from `back-to-menu.sh`) without SSH access. Easier than the Companion
 versions too, since `menu.py` already runs as root — no sudoers/shell-command
 dance needed, just `subprocess.run(["shutdown", ...])` directly.
 
-Both are blocked on the user designing icon assets and testing how they read
-on the physical 36-key grid before wiring up behavior.
+Blocked on the user designing icon assets and testing how they read on the
+physical 36-key grid before wiring up behavior. The top row is now taken by
+the timezone keys (when that feature is installed).
 
 Confirmation design, when it happens: don't build a timeout-based "press
 once to arm, confirm within N seconds" flow — that pattern doesn't actually

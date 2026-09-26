@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # sdpi: setup manager for the StreamdeckXL Pi Boot Menu. Installs, updates and
-# removes each feature (menu app, Companion, Satellite, Companion scripts, RTC).
+# removes each feature (menu app, timezone buttons, Companion, Satellite,
+# Companion scripts, RTC).
 # Run it any time with: sudo sdpi
 set -uo pipefail
 
@@ -9,7 +10,7 @@ SDPI_HOME="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$SDPI_HOME/lib/common.sh"
 
-MODULES=(menu companion satellite companion_scripts rtc)
+MODULES=(menu timezone companion satellite companion_scripts rtc)
 for _m in "${MODULES[@]}"; do
   # shellcheck source=/dev/null
   source "$SDPI_HOME/modules/$_m.sh"
@@ -101,11 +102,13 @@ install_menu() {
     case "$choice" in
       b|B) return 0 ;;
       1)
-        # Asked first: the RTC setup needs answers, the rest runs unattended.
+        # Ask everything up front so the long install can run unattended.
+        local with_tz=""
+        if confirm " Add timezone buttons to the menu?" n; then with_tz=1; fi
         if ! _rtc_is_pi5 && confirm " Do you have an RTC (real-time clock) module installed?" n; then
           run rtc_install
         fi
-        run install_everything ;;
+        SDPI_WITH_TZ="$with_tz" run install_everything ;;
       *)
         if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 2 && choice < 2 + ${#MODULES[@]} )); then
           m="${MODULES[choice - 2]}"
@@ -126,6 +129,7 @@ install_everything() {
   companion_scripts_install
   # Last, so it starts once with Companion and Satellite already in place.
   menu_install
+  if [[ -n "${SDPI_WITH_TZ:-}" ]]; then timezone_install; fi
   apt_cleanup
 }
 

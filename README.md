@@ -50,6 +50,7 @@ piped form still works; sdpi reattaches to the terminal itself.)
 | Feature | What it installs |
 | --- | --- |
 | **Menu app** | `menu/menu.py` in a venv at `/opt/menu`, run as `menu.service`. Shows COMPANION/SATELLITE keys plus a touchscreen for static IP / DHCP, and hands the Stream Deck to whichever you pick. A key only appears if that one is installed. Uses the [python-elgato-streamdeck](https://github.com/abcminiuser/python-elgato-streamdeck) library, deliberately unpinned: if the touchscreen ever renders wrong after an update, `menu.py`'s `update_lcd()` (written against `streamdeck` 0.10.0) is the first place to look. |
+| **Timezone buttons** | One key per zone across the top row of the menu (active zone in green). Pressing one sets the Pi's timezone with `timedatectl`. The list is `/etc/menu/timezones.json` — Eastern, Central, Mountain, Pacific and Arizona by default, up to 9; edit it, then **Update → Menu app**. Set the zone before handing off and Companion starts in it, so no Companion restart is needed. Needs the menu app. |
 | **Companion** | The latest **stable** Bitfocus Companion via Bitfocus's own installer, disabled at boot so the menu decides when it runs. Enables Companion's "Run shell command" action (off by default upstream). |
 | **Satellite** | The latest **stable** Companion Satellite via Bitfocus's own installer, also disabled at boot. |
 | **Companion scripts** | Shutdown, reboot and back-to-menu scripts in `/opt/companion-scripts` for Companion buttons (see below). Needs Companion. |
@@ -119,9 +120,11 @@ before starting `menu.service`.
 
 ### Timezone-switching Companion buttons (manual setup)
 
-Not set up by sdpi — this is a personal setup note for adding
-one-press timezone switching (e.g. touring between US/Canada markets)
-directly in Companion, since `menu.py` has no timezone UI of its own.
+Not set up by sdpi — this is a personal setup note for switching timezones
+from inside Companion (e.g. touring between US/Canada markets). The menu's
+**Timezone buttons** feature is simpler if you can set the zone before handing
+off to Companion: no sudoers rule and no Companion restart. This version is
+for switching while Companion is already running.
 
 Grant the `companion` user passwordless sudo for changing the system
 timezone and for restarting Companion:

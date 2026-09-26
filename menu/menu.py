@@ -24,12 +24,16 @@ RIGHT_START_ICON = "/opt/menu/icons/sat256x256.png"
 
 SELF_SERVICE_NAME = "menu"
 
+# Written by sdpi's "Timezone buttons" feature; no file = no timezone keys.
+TZ_CONFIG = "/etc/menu/timezones.json"
+
 AUTO_REFRESH_SECS = 1.0
 HID_VENDOR        = "0FD9"
 NM_CONN_TTL       = 5.0
 # ============================================
 
 # StreamDeck Plus XL (9x4) — keys 0-35
+KEY_COLS  = 9
 KEY_LEFT  = 27
 KEY_DHCP  = 31
 KEY_RIGHT = 35
@@ -205,24 +209,78 @@ def wait_ip_change(target_ip):
         time.sleep(0.2)
     return False
 
+# ---------- timezone buttons ----------
+def load_timezone_buttons():
+    """[(key, label, zone), ...] from TZ_CONFIG, centred on the top row."""
+    try:
+        entries = json.loads(Path(TZ_CONFIG).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        log(f"timezone config error: {e}")
+        return []
+    if not isinstance(entries, list):
+        log("timezone config error: expected a list")
+        return []
+    valid = []
+    for e in entries:
+        label = str(e.get("label", "")).strip() if isinstance(e, dict) else ""
+        zone  = str(e.get("zone", "")).strip() if isinstance(e, dict) else ""
+        if label and zone and (Path("/usr/share/zoneinfo") / zone).is_file():
+            valid.append((label, zone))
+        else:
+            log(f"skipping timezone entry {e!r}")
+    valid = valid[:KEY_COLS]
+    start = (KEY_COLS - len(valid)) // 2
+    return [(start + i, label, zone) for i, (label, zone) in enumerate(valid)]
+
+def current_zone():
+    try:
+        return str(Path("/etc/localtime").resolve()).split("zoneinfo/", 1)[1]
+    except Exception:
+        return ""
+
+def set_timezone(zone):
+    try:
+        r = run(["timedatectl", "set-timezone", zone], timeout=5)
+    except Exception as e:
+        log(f"set-timezone {zone} error: {e}")
+        return False
+    if r.returncode != 0:
+        log(f"set-timezone {zone} failed: {r.stderr.strip()}")
+        return False
+    # Python caches the zone at startup; re-read it so this log follows the change.
+    time.tzset()
+    log(f"timezone set to {zone}")
+    return True
+
 # ---------- UI helpers ----------
 def load_font(sz):
     p = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     return ImageFont.truetype(p, sz) if Path(p).exists() else ImageFont.load_default()
 
 FONT_BIG = load_font(24)
+FONT_MID = load_font(20)
 FONT_SML = load_font(16)
 FONT_LCD = load_font(28)
+
+def fit_font(d, text, max_w):
+    """Largest key font that fits `text` in max_w pixels, with its bbox."""
+    for font in (FONT_BIG, FONT_MID, FONT_SML):
+        bb = d.textbbox((0, 0), text, font=font)
+        if bb[2] - bb[0] <= max_w:
+            return font, bb
+    return FONT_SML, d.textbbox((0, 0), text, font=FONT_SML)
 
 def img_text(deck, text, bg, sub=None):
     w, h = deck.key_image_format()["size"]
     im = Image.new("RGB", (w, h), bg)
     d  = ImageDraw.Draw(im)
     if text:
-        bb = d.textbbox((0, 0), text, font=FONT_BIG)
+        font, bb = fit_font(d, text, w - 8)
         tw, th = bb[2] - bb[0], bb[3] - bb[1]
         y = (h - th) // 2 - (6 if sub else 0)
-        d.text(((w - tw) // 2, y), text, font=FONT_BIG, fill=(255, 255, 255))
+        d.text(((w - tw) // 2, y), text, font=font, fill=(255, 255, 255))
     if sub:
         bb2 = d.textbbox((0, 0), sub, font=FONT_SML)
         sw, sh = bb2[2] - bb2[0], bb2[3] - bb2[1]
@@ -303,6 +361,8 @@ dial_page = "ip"
 cur_ip,  cur_mask  = get_ip_mask()
 edit_ip, edit_mask = cur_ip[:], cur_mask[:]
 dhcp_on = False
+tz_buttons  = []
+active_zone = ""
 
 def refresh_current():
     global cur_ip, cur_mask
@@ -351,6 +411,13 @@ def draw_static_keys():
                                       (KEY_RIGHT, RIGHT_START_LABEL, RIGHT_START_ICON, RIGHT_START_SERVICE)):
             if service_installed(svc):
                 deck.set_key_image(key, img_icon(deck, label, (0, 60, 140), icon))
+    draw_tz_keys()
+
+def draw_tz_keys():
+    with deck_lock:
+        for key, label, zone in tz_buttons:
+            bg = (0, 120, 0) if zone == active_zone else (0, 60, 140)
+            deck.set_key_image(key, img_text(deck, label, bg))
 
 # ---------- redraw (DHCP button + LCD) ----------
 def redraw():
@@ -569,7 +636,7 @@ def _manual_to_dhcp_worker():
         _network_op_lock.release()
 
 def on_key(_, key, pressed):
-    global active_key
+    global active_key, active_zone
 
     if not pressed:
         with active_key_lock:
@@ -602,6 +669,13 @@ def on_key(_, key, pressed):
                 return
             threading.Thread(target=_manual_to_dhcp_worker, daemon=True).start()
         return
+
+    for tz_key, _label, zone in tz_buttons:
+        if key == tz_key:
+            if set_timezone(zone):
+                active_zone = zone
+                draw_tz_keys()
+            return
 
     if key in (KEY_LEFT, KEY_RIGHT):
         svc = LEFT_START_SERVICE if key == KEY_LEFT else RIGHT_START_SERVICE
@@ -637,6 +711,8 @@ def on_touch(*args):
 
 deck.set_touchscreen_callback(on_touch)
 
+tz_buttons  = load_timezone_buttons()
+active_zone = current_zone()
 draw_static_keys()
 redraw()
 
@@ -662,3 +738,11 @@ while True:
     refresh_dhcp_state()
     if dhcp_on != prev_dhcp:
         redraw()
+
+    # Catches a zone changed some other way (SSH, sdpi) so the lit key stays right.
+    if tz_buttons:
+        zone = current_zone()
+        if zone != active_zone:
+            active_zone = zone
+            time.tzset()
+            draw_tz_keys()

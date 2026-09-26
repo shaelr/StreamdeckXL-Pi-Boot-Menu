@@ -346,11 +346,11 @@ def draw_static_keys():
         blank = blank_key(deck)
         for k in range(36):
             deck.set_key_image(k, blank)
-        # Grey = not installed (sdpi can install/remove each one separately).
+        # A key only appears if its service is installed (sdpi installs/removes each separately).
         for key, label, icon, svc in ((KEY_LEFT, LEFT_START_LABEL, LEFT_START_ICON, LEFT_START_SERVICE),
                                       (KEY_RIGHT, RIGHT_START_LABEL, RIGHT_START_ICON, RIGHT_START_SERVICE)):
-            bg = (0, 60, 140) if service_installed(svc) else (40, 40, 40)
-            deck.set_key_image(key, img_icon(deck, label, bg, icon))
+            if service_installed(svc):
+                deck.set_key_image(key, img_icon(deck, label, (0, 60, 140), icon))
 
 # ---------- redraw (DHCP button + LCD) ----------
 def redraw():

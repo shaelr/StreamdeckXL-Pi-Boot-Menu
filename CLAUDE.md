@@ -80,7 +80,7 @@ Stream Deck + XL can only be claimed by one process at a time (`menu.py`'s
 `/dev/hidraw` — confirmed by reading the library's actual transport source,
 not assumed). `menu.py`'s `handoff_to()` releases its own claim, deauthorizes/
 reauthorizes the device's USB port to force a clean kernel-level
-re-enumeration, and starts Companion or Satellite (it greys out and ignores
+re-enumeration, and starts Companion or Satellite (it hides and ignores
 the key for one that isn't installed, since handing off to nothing would leave
 the deck dead). `companion-scripts/back-to-menu.sh` does the reverse, triggered
 *from inside Companion* via its "Run shell command" button action, and refuses

@@ -338,13 +338,19 @@ def _reset_edit_state():
 _network_op_lock = threading.Lock()
 
 # ---------- static keys (draw once at startup) ----------
+def service_installed(name):
+    return Path(f"/etc/systemd/system/{name}.service").exists()
+
 def draw_static_keys():
     with deck_lock:
         blank = blank_key(deck)
         for k in range(36):
             deck.set_key_image(k, blank)
-        deck.set_key_image(KEY_LEFT,  img_icon(deck, LEFT_START_LABEL,  (0, 60, 140), LEFT_START_ICON))
-        deck.set_key_image(KEY_RIGHT, img_icon(deck, RIGHT_START_LABEL, (0, 60, 140), RIGHT_START_ICON))
+        # Grey = not installed (sdpi can install/remove each one separately).
+        for key, label, icon, svc in ((KEY_LEFT, LEFT_START_LABEL, LEFT_START_ICON, LEFT_START_SERVICE),
+                                      (KEY_RIGHT, RIGHT_START_LABEL, RIGHT_START_ICON, RIGHT_START_SERVICE)):
+            bg = (0, 60, 140) if service_installed(svc) else (40, 40, 40)
+            deck.set_key_image(key, img_icon(deck, label, bg, icon))
 
 # ---------- redraw (DHCP button + LCD) ----------
 def redraw():
@@ -597,10 +603,13 @@ def on_key(_, key, pressed):
             threading.Thread(target=_manual_to_dhcp_worker, daemon=True).start()
         return
 
-    if key == KEY_LEFT:
-        handoff_to(LEFT_START_SERVICE);  return
-    if key == KEY_RIGHT:
-        handoff_to(RIGHT_START_SERVICE); return
+    if key in (KEY_LEFT, KEY_RIGHT):
+        svc = LEFT_START_SERVICE if key == KEY_LEFT else RIGHT_START_SERVICE
+        # Handing off stops the menu; with nothing to start, the deck would go dead.
+        if not service_installed(svc):
+            log(f"{svc} is not installed; ignoring key")
+            return
+        handoff_to(svc)
 
 # ---------- main ----------
 while deck is None:

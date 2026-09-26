@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Meant to be pointed at by a Companion "Run shell path" button action, as:
+# Meant to be pointed at by a Companion "Run shell command" button action, as:
 #   sudo /opt/companion-scripts/back-to-menu.sh
 # The companion system user has passwordless sudo for exactly this script
 # (/etc/sudoers.d/091-menu-scripts), since it needs root to stop the
@@ -22,6 +22,14 @@ log() {
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Must be run as root, e.g.: sudo $0" >&2
+  exit 1
+fi
+
+# Without the menu there's nothing to hand the Stream Deck back to; stopping
+# Companion anyway would leave the device dead until a reboot.
+if [[ ! -f /etc/systemd/system/menu.service ]]; then
+  log "menu.service isn't installed; leaving Companion running"
+  echo "The menu app isn't installed, so there's nothing to go back to." >&2
   exit 1
 fi
 

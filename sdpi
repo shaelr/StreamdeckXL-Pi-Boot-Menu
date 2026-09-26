@@ -1,0 +1,350 @@
+#!/usr/bin/env bash
+# sdpi: setup manager for the StreamdeckXL Pi Boot Menu. Installs, updates and
+# removes each feature (menu app, Companion, Satellite, Companion scripts, RTC).
+# Run it any time with: sudo sdpi
+set -uo pipefail
+
+SDPI_HOME="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# shellcheck source=lib/common.sh
+source "$SDPI_HOME/lib/common.sh"
+
+MODULES=(menu companion satellite companion_scripts rtc)
+for _m in "${MODULES[@]}"; do
+  # shellcheck source=/dev/null
+  source "$SDPI_HOME/modules/$_m.sh"
+done
+unset _m
+
+# Runs one action in a subshell with errexit, so a failure stops that action
+# and returns to the menu instead of killing sdpi. Never call this inside an
+# if/&&/|| condition: bash silently disables errexit in that context.
+run() {
+  local rc
+  echo
+  ( set -eo pipefail; "$@" )
+  rc=$?
+  echo
+  if (( rc == 0 )); then log "Done."; else err "Stopped. See the messages above."; fi
+  pause
+  return "$rc"
+}
+
+current_branch() { git -C "$SDPI_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?"; }
+
+header() {
+  clear 2>/dev/null || printf '\033[H\033[2J'
+  echo
+  printf " %sStreamdeckXL Pi Boot Menu setup%s        %s%s @ %s%s\n" "$C_BLD" "$C_RST" \
+    "$C_DIM" "$(current_branch)" "$(git -C "$SDPI_HOME" rev-parse --short HEAD 2>/dev/null || echo "?")" "$C_RST"
+  line
+}
+
+show_status() {
+  local m
+  for m in "${MODULES[@]}"; do
+    if "${m}_installed"; then
+      printf "  %-20s %sInstalled%s %s(%s)%s\n" "$("${m}_label")" "$C_GRN" "$C_RST" "$C_DIM" "$("${m}_detail")" "$C_RST"
+    else
+      printf "  %-20s %sNot installed%s\n" "$("${m}_label")" "$C_DIM" "$C_RST"
+    fi
+  done
+}
+
+# ---------- main menu ----------
+
+main_menu() {
+  local choice
+  while true; do
+    header
+    show_status
+    if [[ -f "$REBOOT_FLAG" ]]; then echo; warn "A reboot is needed to finish applying changes."; fi
+    line
+    echo "  1) Install    2) Update    3) Remove    4) Advanced    Q) Quit"
+    echo
+    read -r -p " Perform action: " choice || exit 0
+    case "$choice" in
+      1) install_menu ;;
+      2) update_menu ;;
+      3) remove_menu ;;
+      4) advanced_menu ;;
+      q|Q) quit ;;
+    esac
+  done
+}
+
+quit() {
+  if [[ -f "$REBOOT_FLAG" ]] && confirm " A reboot is needed to finish applying changes. Reboot now?" n; then
+    reboot
+  fi
+  exit 0
+}
+
+# ---------- install ----------
+
+install_menu() {
+  local choice i m
+  while true; do
+    header
+    echo "  ${C_BLD}Install${C_RST}"
+    echo
+    echo "  1) Everything (first-time setup)"
+    i=2
+    for m in "${MODULES[@]}"; do
+      printf "  %d) %-20s %s\n" "$i" "$("${m}_label")" "$("${m}_installed" && echo "${C_DIM}installed${C_RST}")"
+      i=$((i + 1))
+    done
+    echo
+    echo "  B) Back"
+    echo
+    read -r -p " Perform action: " choice || return 0
+    case "$choice" in
+      b|B) return 0 ;;
+      1)
+        # Asked first: the RTC setup needs answers, the rest runs unattended.
+        if ! _rtc_is_pi5 && confirm " Do you have an RTC (real-time clock) module installed?" n; then
+          run rtc_install
+        fi
+        run install_everything ;;
+      *)
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 2 && choice < 2 + ${#MODULES[@]} )); then
+          m="${MODULES[choice - 2]}"
+          if "${m}_installed" && ! confirm " $("${m}_label") is already installed. Reinstall it?" n; then
+            continue
+          fi
+          run "${m}_install"
+        fi ;;
+    esac
+  done
+}
+
+install_everything() {
+  system_upgrade
+  # Satellite is (re)installed right after, which restores /opt/fnm anyway.
+  SDPI_SKIP_SATELLITE_FIX=1 companion_install
+  satellite_install
+  companion_scripts_install
+  # Last, so it starts once with Companion and Satellite already in place.
+  menu_install
+  apt_cleanup
+}
+
+# ---------- update ----------
+
+update_menu() {
+  local choice i m upd
+  while true; do
+    upd=()
+    for m in "${MODULES[@]}"; do
+      if "${m}_installed" && declare -F "${m}_update" >/dev/null; then upd+=("$m"); fi
+    done
+    header
+    echo "  ${C_BLD}Update${C_RST}"
+    echo
+    echo "  1) Everything (this project, Companion, Satellite and system packages)"
+    echo "  2) This project only (sdpi, menu app and Companion scripts)"
+    i=3
+    for m in "${upd[@]}"; do
+      printf "  %d) %s\n" "$i" "$("${m}_label")"
+      i=$((i + 1))
+    done
+    echo "  S) System packages (apt upgrade)"
+    echo
+    echo "  B) Back"
+    echo
+    read -r -p " Perform action: " choice || return 0
+    case "$choice" in
+      b|B) return 0 ;;
+      1) self_update_then --continue-update-all ;;
+      2) self_update_then --continue-update-project ;;
+      s|S) run system_upgrade ;;
+      *)
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 3 && choice < 3 + ${#upd[@]} )); then
+          run "${upd[choice - 3]}_update"
+        fi ;;
+    esac
+  done
+}
+
+update_components() {
+  system_upgrade
+  if companion_installed; then SDPI_SKIP_SATELLITE_FIX=1 companion_update; fi
+  if satellite_installed; then satellite_update; fi
+  update_project
+  apt_cleanup
+}
+
+update_project() {
+  if companion_scripts_installed; then companion_scripts_update; fi
+  if menu_installed; then menu_update; fi
+}
+
+# Pulls the latest sdpi first, then restarts into the new code (with the given
+# flag) so the rest of the update runs with whatever just changed.
+self_update_then() {
+  local flag="$1" rc
+  echo
+  sdpi_self_update
+  rc=$?
+  if (( rc == 0 )); then
+    exec "$SDPI_HOME/sdpi" "$flag"
+  elif (( rc == 2 )); then
+    case "$flag" in
+      --continue-update-all) run update_components ;;
+      --continue-update-project) run update_project ;;
+    esac
+  else
+    pause
+  fi
+}
+
+# Returns 0 if it updated, 2 if already current, 1 on failure.
+sdpi_self_update() {
+  local branch before after
+  branch="$(current_branch)"
+  log "Checking for updates to this project ($branch)..."
+  if ! git -C "$SDPI_HOME" fetch --quiet origin "$branch"; then
+    err "Couldn't reach GitHub."
+    return 1
+  fi
+  before="$(git -C "$SDPI_HOME" rev-parse HEAD)"
+  after="$(git -C "$SDPI_HOME" rev-parse "origin/$branch")"
+  if [[ "$before" == "$after" ]]; then
+    log "Already up to date."
+    return 2
+  fi
+  confirm_discard_local_changes || return 1
+  if ! git -C "$SDPI_HOME" reset --hard --quiet "origin/$branch"; then
+    err "Couldn't update $SDPI_HOME."
+    return 1
+  fi
+  log "Updated to: $(git -C "$SDPI_HOME" log --oneline -1)"
+}
+
+confirm_discard_local_changes() {
+  [[ -z "$(git -C "$SDPI_HOME" status --porcelain --untracked-files=no)" ]] && return 0
+  warn "$SDPI_HOME has local changes that this will discard:"
+  git -C "$SDPI_HOME" status --short --untracked-files=no
+  confirm " Discard them?" n || return 1
+  git -C "$SDPI_HOME" reset --hard --quiet
+}
+
+# ---------- remove ----------
+
+remove_menu() {
+  local choice i m inst
+  while true; do
+    inst=()
+    for m in "${MODULES[@]}"; do
+      if "${m}_installed"; then inst+=("$m"); fi
+    done
+    header
+    echo "  ${C_BLD}Remove${C_RST}"
+    echo
+    (( ${#inst[@]} )) || echo "  Nothing is installed."
+    i=1
+    for m in "${inst[@]}"; do
+      printf "  %d) %s\n" "$i" "$("${m}_label")"
+      i=$((i + 1))
+    done
+    echo
+    echo "  B) Back"
+    echo
+    read -r -p " Perform action: " choice || return 0
+    case "$choice" in
+      b|B) return 0 ;;
+      *)
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#inst[@]} )); then
+          m="${inst[choice - 1]}"
+          if confirm " Remove $("${m}_label")?" n; then
+            run "${m}_remove"
+          fi
+        fi ;;
+    esac
+  done
+}
+
+# ---------- advanced ----------
+
+advanced_menu() {
+  local choice
+  while true; do
+    header
+    echo "  ${C_BLD}Advanced${C_RST}"
+    echo
+    echo "  1) Switch branch (currently $(current_branch))"
+    echo "  2) View menu app log"
+    echo
+    echo "  B) Back"
+    echo
+    read -r -p " Perform action: " choice || return 0
+    case "$choice" in
+      b|B) return 0 ;;
+      1) switch_branch ;;
+      2) view_log ;;
+    esac
+  done
+}
+
+switch_branch() {
+  local current b branches=()
+  current="$(current_branch)"
+  echo
+  log "Fetching branches from GitHub..."
+  if ! git -C "$SDPI_HOME" fetch --quiet --prune origin; then
+    err "Couldn't reach GitHub."
+    pause
+    return 0
+  fi
+  while IFS= read -r b; do
+    [[ "$b" == HEAD ]] || branches+=("$b")
+  done < <(git -C "$SDPI_HOME" for-each-ref --format='%(refname:strip=3)' refs/remotes/origin)
+  echo "Currently on: $current"
+  b="$(choose " Switch to which branch?" "${branches[@]}")" || return 0
+  if [[ "$b" == "$current" ]]; then
+    log "Already on $b."
+    pause
+    return 0
+  fi
+  if ! confirm_discard_local_changes; then pause; return 0; fi
+  if ! git -C "$SDPI_HOME" checkout --quiet -B "$b" "origin/$b"; then
+    err "Couldn't switch to $b."
+    pause
+    return 0
+  fi
+  log "Switched to $b."
+  if confirm " Deploy it now (sdpi, menu app and Companion scripts)?" y; then
+    exec "$SDPI_HOME/sdpi" --continue-update-project
+  fi
+  exec "$SDPI_HOME/sdpi"
+}
+
+view_log() {
+  echo
+  echo "${C_BLD}Last 40 lines of $MENU_LOG:${C_RST}"
+  tail -n 40 "$MENU_LOG" 2>/dev/null || echo "  (no log yet)"
+  echo
+  echo "${C_BLD}menu.service journal:${C_RST}"
+  journalctl -u menu -n 20 --no-pager 2>/dev/null || true
+  echo
+  pause
+}
+
+main() {
+  if [[ $EUID -ne 0 ]]; then exec sudo "$0" "$@"; fi
+  # Launched from `curl ... | bash`, stdin is the pipe rather than the
+  # keyboard. Reattach to the terminal so the menus can read input.
+  if [[ ! -t 0 ]] && ! { exec </dev/tty; } 2>/dev/null; then
+    echo "sdpi needs an interactive terminal. Run: sudo sdpi" >&2
+    exit 1
+  fi
+  case "${1:-}" in
+    --continue-update-all) run update_components ;;
+    --continue-update-project) run update_project ;;
+  esac
+  main_menu
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

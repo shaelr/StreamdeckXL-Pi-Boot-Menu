@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
+# One-liner bootstrap. Run on the Pi:
+#   sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/main/install.sh)"
+# Another branch:
+#   sudo BRANCH=test bash -c "$(curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/test/install.sh)"
+#
+# Clones (or updates) the repo into /opt/sdpi, puts the `sdpi` setup manager on
+# the PATH and launches it. After that, run `sudo sdpi` any time.
 set -euo pipefail
 
-# ==========================================================
-# One-liner bootstrap:
-#   curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/main/install.sh | sudo bash
-#
-# Clones the latest main branch commit to a temp dir and runs the real
-# installer (installer/install.sh) from there, so it can find the app
-# source in ../menu alongside it. Always installs whatever's newest on
-# main — no release tags to keep updated.
-# ==========================================================
-
 REPO_URL="https://github.com/shaelr/StreamdeckXL-Pi-Boot-Menu.git"
+SDPI_HOME="/opt/sdpi"
+BRANCH="${BRANCH:-main}"
 
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "Run as root: curl -fsSL <url> | sudo bash"
+if [[ $EUID -ne 0 ]]; then
+  echo "Run as root: sudo bash -c \"\$(curl -fsSL <url>)\"" >&2
   exit 1
 fi
 
@@ -24,10 +23,17 @@ if ! command -v git >/dev/null 2>&1; then
   apt-get install -y git
 fi
 
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+if [[ -d "$SDPI_HOME/.git" ]]; then
+  echo "Updating $SDPI_HOME to $BRANCH..."
+  git -C "$SDPI_HOME" fetch --quiet origin "$BRANCH"
+  git -C "$SDPI_HOME" checkout --quiet -B "$BRANCH" "origin/$BRANCH"
+  git -C "$SDPI_HOME" reset --hard --quiet "origin/$BRANCH"
+else
+  echo "Downloading to $SDPI_HOME ($BRANCH)..."
+  git clone --quiet -b "$BRANCH" "$REPO_URL" "$SDPI_HOME"
+fi
 
-echo "Cloning ${REPO_URL}..."
-git clone --depth 1 "$REPO_URL" "$TMP_DIR/repo"
+chmod +x "$SDPI_HOME/sdpi"
+ln -sf "$SDPI_HOME/sdpi" /usr/local/bin/sdpi
 
-exec bash "$TMP_DIR/repo/installer/install.sh"
+exec "$SDPI_HOME/sdpi"

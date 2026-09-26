@@ -4,49 +4,75 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An installer + app that turns a Raspberry Pi with an Elgato Stream Deck + XL
-into a boot-time picker between Bitfocus Companion and Companion Satellite,
-with a touchscreen for static IP / DHCP configuration. There is no build
-system, package manager, or test suite — this is bash + one Python file,
+A setup manager (`sdpi`) + app that turns a Raspberry Pi with an Elgato Stream
+Deck + XL into a boot-time picker between Bitfocus Companion and Companion
+Satellite, with a touchscreen for static IP / DHCP configuration. There is no
+build system, package manager, or test suite — this is bash + one Python file,
 deployed directly onto a Pi's filesystem as systemd services.
 
 ## Commands
 
-There is no build/lint/test tooling. Verification is:
+There is no build/lint/test tooling in the repo. Verification is:
 
-- Shell scripts: `bash -n <script>` before committing (syntax only — no linter is configured).
+- Shell scripts: `shellcheck -x -s bash sdpi install.sh lib/common.sh modules/*.sh companion-scripts/*.sh`
+  (not installed on this Mac; `pip install shellcheck-py` into a throwaway
+  venv works) plus `bash -n <script>`.
 - `menu/menu.py`: `python3 -m py_compile menu/menu.py` (then remove the generated `__pycache__`).
+- Local bash is 3.2; the Pi runs bash 5. Code targets bash 5 (e.g. empty
+  arrays under `set -u` are fine there, not on 3.2). `sdpi` only runs `main`
+  when executed, so it can be `source`d with system commands stubbed out to
+  smoke-test menus and module logic on a Mac.
 - Real behavior can only be verified on **actual hardware** — a Raspberry Pi
-  (64-bit OS) with a physical Stream Deck + XL attached. Nothing here runs in
-  CI or a sandbox; when reasoning about a change, say explicitly if it hasn't
-  been confirmed on hardware.
-- To exercise the installer: `sudo installer/install.sh` from a clone, or the
-  published one-liner (`curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/main/install.sh | sudo bash`).
-  It's idempotent — safe to re-run on an already-installed Pi to pick up changes.
-- No release/tag workflow: the one-liner clones `main` directly (see
-  `install.sh`). Every push to `main` is immediately what gets installed —
-  don't reintroduce GitHub Releases pinning without being asked; that was
-  deliberately removed.
+  (64-bit OS) with a physical Stream Deck + XL attached. When reasoning about
+  a change, say explicitly if it hasn't been confirmed on hardware.
+- On the Pi: `sudo sdpi`. Fresh install / another branch:
+  `sudo [BRANCH=test] bash -c "$(curl -fsSL https://raw.githubusercontent.com/shaelr/StreamdeckXL-Pi-Boot-Menu/<branch>/install.sh)"`.
+- No release/tag workflow: the one-liner and sdpi's self-update track a
+  branch (`main` by default). Every push to `main` is immediately what gets
+  installed — don't reintroduce GitHub Releases pinning without being asked.
+  Put in-progress work on the `test` branch and merge once it's verified.
 
 ## Architecture
 
-**Three-stage bootstrap:** `install.sh` (root, the published one-liner) clones
-the repo to a temp dir and hands off to `installer/install.sh`, which is the
-actual installer. It resolves `menu/` and `companion-scripts/` relative to its
-own location (not the caller's cwd), so it works whether run via the one-liner
-or a manual clone.
+**Bootstrap:** `install.sh` (the published one-liner) clones or updates the
+repo at `/opt/sdpi` (branch from `$BRANCH`, default `main`), symlinks
+`/usr/local/bin/sdpi` to it, and execs `sdpi`. The checkout stays on the Pi:
+sdpi updates itself with `git fetch` + `reset --hard origin/<branch>`, then
+re-execs with a `--continue-update-*` flag so the rest of an update runs with
+the new code. The one-liner uses `bash -c "$(curl ...)"` so stdin stays the
+keyboard; `sdpi` also reattaches to `/dev/tty` if launched via `curl | bash`.
 
-`installer/install.sh` does, roughly in order: apt packages, installs
-Companion + Satellite via their **own upstream installers** (piped from
-GitHub, pinned to the `stable` channel via the `COMPANION_BUILD`/
-`SATELLITE_BUILD` env vars they read — not CLI flags, they don't take any),
-leaves both services disabled, sets up a Python venv, deploys `menu/menu.py`
-as the `menu` systemd service (runs as root), deploys `companion-scripts/*.sh`
-to `/opt/companion-scripts/`, and grants Companion shell-command support plus
-a scoped sudoers entry (see below). It always re-runs Companion/Satellite's
-installers, which re-download and reinstall "latest stable" even if already
-current — that's an inefficiency in their own updater's version-comparison
-logic, not a bug here.
+**`sdpi`** is a numbered text menu (Install / Update / Remove / Advanced) over
+`MODULES=(menu companion satellite companion_scripts rtc)`. Each
+`modules/<id>.sh` defines `<id>_label`, `<id>_installed`, `<id>_detail`,
+`<id>_install`, `<id>_remove`, and optionally `<id>_update`. Status comes from
+the Pi's actual state (unit files, BUILD files, the config.txt overlay line),
+never a separate record, so hand-installed or old-installer setups show up
+correctly. `lib/common.sh` holds paths and shared helpers (`confirm`,
+`choose`, `ask_delete_data`, apt locking). Modules deploy files from the
+checkout into fixed paths (`/opt/menu`, `/opt/companion-scripts`) — Companion
+buttons and the sudoers rule reference those by path, so don't move them.
+
+**`run()` in `sdpi` executes each action in a `( set -eo pipefail; ... )`
+subshell** so a failure stops that action and returns to the menu. Bash
+silently disables errexit for anything executed inside an `if`/`&&`/`||`
+condition — including functions and subshells — so never call `run` or a
+module action in a condition (`if confirm ...; then run ...; fi` is fine, the
+body isn't a condition). In module code, prefer `if ...; then ...; fi` over
+`a && b` as a function's last line, which returns 1 and trips errexit.
+
+**Companion/Satellite** are installed with Bitfocus's own installers (piped
+from GitHub, `COMPANION_BUILD=stable` / `SATELLITE_BUILD=stable` env vars), then
+disabled at boot so the menu decides which runs. Remove reverses what their
+installers create (they ship no uninstaller) and asks whether to keep the
+saved config (`/home/<user>`, `/etc/companion`, `/boot/satellite-config`).
+**Gotcha:** companion-pi's `update.sh` deletes `/opt/fnm` ("fnm is no longer
+used"), but `satellite.service` runs Node from `/opt/fnm`. So any Companion
+install/update re-runs Satellite's installer afterwards if Satellite is
+installed (`_companion_restore_satellite_runtime`); `SDPI_SKIP_SATELLITE_FIX=1`
+skips that when Satellite is reinstalled right after anyway (Install/Update
+Everything). The old single installer only survived this by always installing
+Companion before Satellite.
 
 **The core mechanic — one USB device, two mutually-exclusive owners:** the
 Stream Deck + XL can only be claimed by one process at a time (`menu.py`'s
@@ -54,10 +80,13 @@ Stream Deck + XL can only be claimed by one process at a time (`menu.py`'s
 `/dev/hidraw` — confirmed by reading the library's actual transport source,
 not assumed). `menu.py`'s `handoff_to()` releases its own claim, deauthorizes/
 reauthorizes the device's USB port to force a clean kernel-level
-re-enumeration, and starts Companion or Satellite. `companion-scripts/back-to-menu.sh`
-does the reverse, triggered *from inside Companion* via its "Run shell path"
-button action (shell commands are enabled via a systemd drop-in on
-`companion.service`, since it's off by default upstream).
+re-enumeration, and starts Companion or Satellite (it greys out and ignores
+the key for one that isn't installed, since handing off to nothing would leave
+the deck dead). `companion-scripts/back-to-menu.sh` does the reverse, triggered
+*from inside Companion* via its "Run shell command" button action, and refuses
+if `menu.service` isn't installed. Modules that add/remove Companion or
+Satellite restart the menu (if running) so it redraws those keys. The menu
+module only starts the menu when neither Companion nor Satellite is active.
 
 **Two hard-won gotchas in `back-to-menu.sh`, worth understanding before
 touching it again:**
@@ -76,29 +105,53 @@ touching it again:**
    doesn't need hidraw). `menu.py`'s own startup loop already retries
    `DeviceManager().enumerate()` every second, so nothing else needs to wait.
 
+**RTC module:** on Pi 5 the RTC is built in and the module does nothing.
+Otherwise it enables I2C, scans the bus (0x68 → DS3231/DS1307/PCF8523, 0x51 →
+PCF8563/PCF85063; `UU` means a driver already owns it), writes
+`dtoverlay=i2c-rtc,<chip>` into config.txt between `# BEGIN/END sdpi rtc`
+markers (replacing any hand-added i2c-rtc line), removes `fake-hwclock`, and
+installs `/etc/udev/rules.d/85-sdpi-rtc.rules` to run `hwclock --hctosys` when
+rtc0 appears. That rule is load-bearing: the Pi kernel builds RTC drivers as
+modules (`=m`), so the kernel's RTC_HCTOSYS boot read runs before the driver
+exists, and trixie dropped the old util-linux hwclock-set udev hook (moved to
+the sysvinit `initscripts` package, absent on systemd installs). The kernel's
+RTC_SYSTOHC (default on) writes NTP time back to the RTC every 11 minutes.
+The RTC path is not yet verified on hardware.
+
 **`streamdeck` (PyPI) is deliberately unpinned**, not pinned to a tested
-version — installed as plain `pip install streamdeck`, always latest. This
-was an explicit choice (see git history) despite `menu.py`'s touchscreen
+version — installed with `pip install --upgrade streamdeck`, always latest.
+This was an explicit choice (see git history) despite `menu.py`'s touchscreen
 drawing (`update_lcd()`) being written and verified against `0.10.0`'s
 specific `PILHelper`/rotation behavior. If the touchscreen ever renders
-wrong/rotated after a fresh install, that version-behavior coupling is the
-first thing to check, not a StreamDeck+XL hardware issue.
+wrong/rotated after an update, that version-behavior coupling is the first
+thing to check, not a StreamDeck+XL hardware issue.
 
-**Notable paths on the target Pi:** `/opt/menu` (venv + `menu.py` + icons),
-`/opt/companion-scripts` (the three Companion-triggerable scripts — kept
-separate from `/opt/menu` since they're a Companion-integration concern, not
-part of the menu app), `/etc/menu/menu.json` (runtime IP config `menu.py`
-reads/writes itself, not deployed by the installer), `/var/log/menu.log`
-(shared log for both `menu.py` and `back-to-menu.sh`), `/etc/sudoers.d/091-menu-scripts`
+**Notable paths on the target Pi:** `/opt/sdpi` (the git checkout sdpi runs
+from), `/opt/menu` (venv + `menu.py` + icons), `/opt/companion-scripts` (the
+three Companion-triggerable scripts — kept separate from `/opt/menu` since
+they're a Companion-integration concern), `/etc/menu/menu.json` (runtime IP
+config `menu.py` reads/writes itself), `/var/log/menu.log` (shared log for
+`menu.py` and `back-to-menu.sh`), `/etc/sudoers.d/091-menu-scripts`
 (passwordless sudo for the `companion` user, scoped to exactly
 `back-to-menu.sh` — `shutdown-pi.sh`/`reboot-pi.sh` need no extra grant since
 Bitfocus's own installer already permits `companion` to run
-`/sbin/shutdown`/`/sbin/reboot`/`/sbin/poweroff`), `/etc/systemd/system/companion.service.d/menu-overrides.conf`
-(the shell-command-support override — a drop-in specifically because
-Companion's own updater overwrites the base unit file on every update but
-never touches `.d/` override directories).
+`/sbin/shutdown`/`/sbin/reboot`/`/sbin/poweroff`),
+`/etc/systemd/system/companion.service.d/menu-overrides.conf` (the
+shell-command-support override — a drop-in specifically because Companion's
+own updater overwrites the base unit file on every update but never touches
+`.d/` override directories), `/var/run/reboot-required` (set by modules that
+need a reboot; sdpi shows a banner and offers to reboot on quit).
 
 ## Planned work
+
+**Timezone buttons on the physical menu**, installed as an sdpi feature (the
+installer question for it was deliberately deferred until the buttons exist).
+Setting the zone from the menu *before* handing off means Companion starts
+fresh in the right zone, avoiding the Companion-restart workaround the README's
+manual Companion timezone buttons need. `menu.py` runs as root, so it can call
+`timedatectl set-timezone` directly with no sudoers grant. The user's zone set:
+Eastern `America/New_York`, Central `America/Chicago`, Mountain
+`America/Denver`, Pacific `America/Los_Angeles`, Arizona `America/Phoenix`.
 
 **Shutdown/reboot keys on the physical menu itself** (in addition to, not
 instead of, the existing Companion-triggered `companion-scripts/shutdown-pi.sh`/
@@ -108,8 +161,8 @@ back from `back-to-menu.sh`) without SSH access. Easier than the Companion
 versions too, since `menu.py` already runs as root — no sudoers/shell-command
 dance needed, just `subprocess.run(["shutdown", ...])` directly.
 
-Not yet implemented — blocked on the user designing icon assets and testing
-how they read on the physical 36-key grid before wiring up behavior.
+Both are blocked on the user designing icon assets and testing how they read
+on the physical 36-key grid before wiring up behavior.
 
 Confirmation design, when it happens: don't build a timeout-based "press
 once to arm, confirm within N seconds" flow — that pattern doesn't actually

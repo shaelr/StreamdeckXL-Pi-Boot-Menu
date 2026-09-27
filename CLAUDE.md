@@ -84,7 +84,13 @@ running before; otherwise it would fight the menu for the deck.
 same way Satellite's installer and updater do, without reinstalling
 Satellite, so a picked version stays. It runs after any Companion
 install/update (`_companion_restore_satellite_runtime`) and before
-`satellite-update`. It's a no-op if fnm is intact.
+`satellite-update`. It's a no-op if fnm is intact. **Known cost, left in place
+on purpose (user's decision, 2026-09-27):** the updater deletes `/opt/fnm`
+before showing its version picker, so every Companion update re-downloads fnm
+and Node (~30 MB, a few seconds), even a cancelled one. Moving `/opt/fnm`
+aside during the update would avoid that; it was offered and declined, so
+don't add it unasked. The root cause is upstream: both Bitfocus Pi installers
+use `/opt/fnm`, each assuming it owns the Pi.
 
 **The core mechanic — one USB device, two mutually-exclusive owners:** the
 Stream Deck + XL can only be claimed by one process at a time (`menu.py`'s

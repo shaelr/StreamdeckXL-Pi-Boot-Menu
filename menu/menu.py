@@ -351,16 +351,22 @@ def img_text(deck, text, bg, sub=None):
 def img_icon(deck, label, bg, path):
     w, h = deck.key_image_format()["size"]
     im = Image.new("RGB", (w, h), bg)
-    try:
-        ic = Image.open(path).convert("RGBA")
-        ic.thumbnail((int(w * 0.90), int(h * 0.70)))
-        im.paste(ic, ((w - ic.width) // 2, 6), ic)
-    except Exception as e:
-        log(f"icon load failed '{path}': {e}")
     d  = ImageDraw.Draw(im)
     bb = d.textbbox((0, 0), label, font=KEY_FONT)
     tw, th = bb[2] - bb[0], bb[3] - bb[1]
-    d.text(((w - tw) // 2, h - th - 6), label, font=KEY_FONT, fill=(255, 255, 255))
+    try:
+        ic = Image.open(path).convert("RGBA")
+        ic.thumbnail((int(w * 0.90), int(h * 0.55)))
+    except Exception as e:
+        log(f"icon load failed '{path}': {e}")
+        ic = None
+    # Icon and label centred together, so the label isn't on the bottom edge.
+    gap = 8
+    y = (h - ((ic.height + gap) if ic else 0) - th) // 2
+    if ic:
+        im.paste(ic, ((w - ic.width) // 2, y), ic)
+        y += ic.height + gap
+    d.text(((w - tw) // 2 - bb[0], y - bb[1]), label, font=KEY_FONT, fill=(255, 255, 255))
     return PILHelper.to_native_key_format(deck, im)
 
 def img_tz(deck, title, clock, label, bg):

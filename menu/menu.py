@@ -252,28 +252,24 @@ def load_timezone_buttons():
     return [(start + i, label, zone) for i, (label, zone) in enumerate(valid)]
 
 def tz_key_faces():
-    """[(key, abbr, lines, zone), ...] for the timezone keys. abbr is the zone's
-    official abbreviation right now (EDT/EST follow DST), drawn large; lines is
-    the clock, plus the label when the abbreviation is only numeric (e.g. "+04")
-    or another key currently shares it (Mountain and Arizona are both MST in
-    winter)."""
+    """[(key, abbr, clock, label, zone), ...] for the timezone keys. abbr is the
+    zone's official abbreviation right now (EDT/EST follow DST); clock is 24h
+    to keep it narrow. label is None unless the abbreviation is only numeric
+    (e.g. "+04") or another key currently shares it (Mountain and Arizona are
+    both MST in winter)."""
     faces = []
     for key, label, zone in tz_buttons:
         try:
             now = datetime.now(ZoneInfo(zone))
-            abbr, clock = now.strftime("%Z"), now.strftime("%-I:%M %p")
+            abbr, clock = now.strftime("%Z"), now.strftime("%H:%M")
         except Exception as e:
             log(f"clock for {zone} failed: {e}")
             abbr, clock = "", None
         faces.append((key, label, abbr, clock, zone))
     abbrs = [f[2] for f in faces]
-    out = []
-    for key, label, abbr, clock, zone in faces:
-        lines = [clock] if clock else []
-        if not abbr[:1].isalpha() or abbrs.count(abbr) > 1:
-            lines.append(label)
-        out.append((key, abbr, lines, zone))
-    return out
+    return [(key, abbr, clock,
+             label if not abbr[:1].isalpha() or abbrs.count(abbr) > 1 else None, zone)
+            for key, label, abbr, clock, zone in faces]
 
 def tz_year_abbrs():
     """Every abbreviation the timezone keys can show (winter and summer), so the
@@ -320,12 +316,12 @@ FONT_LCD = load_font(28)
 # text here or it may not fit.
 KEY_TEXTS = [LEFT_START_LABEL, RIGHT_START_LABEL, "DHCP", "Manual",
              "APPLIED", "TIMEOUT", "BAD IP", "BAD JSON", "NO NM",
-             "RESTART", "SHUTDOWN", "CONFIRM", "CANCEL", "FAILED",
-             "12:00 PM"]   # widest timezone-key clock
+             "RESTART", "SHUTDOWN", "CONFIRM", "CANCEL", "FAILED"]
 KEY_FONT = load_font(16)
-# The one exception to the shared size (user's choice): the zone abbreviation
-# on the timezone keys is drawn large. Sized at startup like KEY_FONT.
+# The exceptions to the shared size (user's choice): the timezone keys' zone
+# abbreviation (sized at startup like KEY_FONT) and 24h clock are drawn larger.
 TZ_TITLE_FONT = load_font(28)
+TZ_CLOCK_FONT = load_font(22)   # "23:59" fits with room to spare
 
 def pick_key_font(labels, max_w, largest=24):
     """Largest font (largest px down) at which every label fits in max_w pixels."""
@@ -367,14 +363,14 @@ def img_icon(deck, label, bg, path):
     d.text(((w - tw) // 2, h - th - 6), label, font=KEY_FONT, fill=(255, 255, 255))
     return PILHelper.to_native_key_format(deck, im)
 
-def img_tz(deck, title, lines, bg):
-    """Timezone key: a large title with KEY_FONT lines under it, centred as a block."""
+def img_tz(deck, title, clock, label, bg):
+    """Timezone key: title, clock and optional label, centred as a block."""
     w, h = deck.key_image_format()["size"]
     im = Image.new("RGB", (w, h), bg)
     d  = ImageDraw.Draw(im)
-    rows = ([(title, TZ_TITLE_FONT)] if title else []) + [(t, KEY_FONT) for t in lines]
-    # More space under the title than between the small lines.
-    gaps = [16 if f is TZ_TITLE_FONT else 4 for _t, f in rows[:-1]] + [0]
+    rows = [(t, f) for t, f in ((title, TZ_TITLE_FONT), (clock, TZ_CLOCK_FONT), (label, KEY_FONT)) if t]
+    # More space under the title than between the lines below it.
+    gaps = [20 if f is TZ_TITLE_FONT else 4 for _t, f in rows[:-1]] + [0]
     boxes = [d.textbbox((0, 0), t, font=f) for t, f in rows]
     y = (h - sum(b[3] - b[1] + g for b, g in zip(boxes, gaps))) // 2
     for (t, f), b, g in zip(rows, boxes, gaps):
@@ -510,9 +506,9 @@ def draw_tz_keys():
         return
     faces = tz_key_faces()
     with deck_lock:
-        for key, abbr, lines, zone in faces:
+        for key, abbr, clock, label, zone in faces:
             bg = GREEN if zone == active_zone else (0, 0, 0)
-            deck.set_key_image(key, img_tz(deck, abbr, lines, bg))
+            deck.set_key_image(key, img_tz(deck, abbr, clock, label, bg))
 
 # ---------- redraw (DHCP button + LCD) ----------
 def redraw():

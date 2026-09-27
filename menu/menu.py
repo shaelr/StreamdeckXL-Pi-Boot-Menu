@@ -325,7 +325,7 @@ KEY_TEXTS = [LEFT_START_LABEL, RIGHT_START_LABEL, "DHCP", "Manual",
 KEY_FONT = load_font(16)
 # The one exception to the shared size (user's choice): the zone abbreviation
 # on the timezone keys is drawn large. Sized at startup like KEY_FONT.
-TZ_TITLE_FONT = load_font(36)
+TZ_TITLE_FONT = load_font(28)
 
 def pick_key_font(labels, max_w, largest=24):
     """Largest font (largest px down) at which every label fits in max_w pixels."""
@@ -374,7 +374,7 @@ def img_tz(deck, title, lines, bg):
     d  = ImageDraw.Draw(im)
     rows = ([(title, TZ_TITLE_FONT)] if title else []) + [(t, KEY_FONT) for t in lines]
     # More space under the title than between the small lines.
-    gaps = [10 if f is TZ_TITLE_FONT else 4 for _t, f in rows[:-1]] + [0]
+    gaps = [16 if f is TZ_TITLE_FONT else 4 for _t, f in rows[:-1]] + [0]
     boxes = [d.textbbox((0, 0), t, font=f) for t, f in rows]
     y = (h - sum(b[3] - b[1] + g for b, g in zip(boxes, gaps))) // 2
     for (t, f), b, g in zip(rows, boxes, gaps):
@@ -885,7 +885,7 @@ active_zone = current_zone()
 KEY_FONT    = pick_key_font(KEY_TEXTS + [label for _, label, _ in tz_buttons],
                             deck.key_image_format()["size"][0] - 8)
 TZ_TITLE_FONT = pick_key_font(tz_year_abbrs() or ["EST"],
-                              deck.key_image_format()["size"][0] - 8, largest=36)
+                              deck.key_image_format()["size"][0] - 8, largest=28)
 draw_static_keys()
 redraw()
 drawn_zone, drawn_minute = active_zone, int(time.time() // 60)

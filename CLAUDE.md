@@ -174,7 +174,7 @@ which `menu.py` sizes at startup to the largest font where every entry in
 16px, set by COMPANION. New key or flash text must be added to `KEY_TEXTS`.
 The touchscreen strip uses its own `FONT_LCD` (28px). **One agreed exception:**
 the zone abbreviation on the timezone keys uses `TZ_TITLE_FONT`. It's sized at
-startup (36px max) over every abbreviation the zones use in winter and summer
+startup (28px max, same as the touchscreen font) over every abbreviation the zones use in winter and summer
 (`tz_year_abbrs()`), so it doesn't jump at a DST switch. The clock and any
 label under it stay at `KEY_FONT`.
 

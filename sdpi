@@ -103,11 +103,16 @@ install_menu() {
       b|B) return 0 ;;
       1)
         # Ask everything up front so the long install can run unattended.
-        local with_tz=""
-        if confirm " Add timezone buttons to the menu?" n; then with_tz=1; fi
-        if ! _rtc_is_pi5 && confirm " Do you have an RTC (real-time clock) module installed?" n; then
+        # RTC first: timezone buttons mostly matter on a Pi that keeps time
+        # offline, so the RTC answer sets the timezone question's default.
+        local with_tz="" tz_default=n
+        if _rtc_is_pi5; then
+          tz_default=y
+        elif confirm " Do you have an RTC (real-time clock) module installed?" n; then
+          tz_default=y
           run rtc_install
         fi
+        if confirm " Add timezone buttons to the menu?" "$tz_default"; then with_tz=1; fi
         SDPI_WITH_TZ="$with_tz" run install_everything ;;
       *)
         if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 2 && choice < 2 + ${#MODULES[@]} )); then

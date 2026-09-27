@@ -130,9 +130,10 @@ thing to check, not a StreamDeck+XL hardware issue.
 `/etc/menu/timezones.json` (a `[{label, zone}]` list, the user's five by
 default) and restarts the menu; `menu.py` does the rest. With the file present
 it centres up to 9 keys on the top row. Each shows the zone's tz-database
-abbreviation and its current time (`tz_key_faces()`: EDT/EST follow DST; the
-config `label` is only a fallback when the abbreviation is numeric or shared,
-e.g. Mountain/Arizona are both MST in winter, user's request). The active zone
+abbreviation, drawn large, with its current time under it (`tz_key_faces()`,
+`img_tz()`; EDT/EST follow DST). The config `label` is added as a small third
+line only when the abbreviation is numeric or shared; for example, Mountain and
+Arizona are both MST in winter. This was the user's request. The active zone
 is green and the rest black; the active zone is read from the `/etc/localtime`
 symlink and rechecked every refresh tick, so SSH/sdpi changes show up. The
 clocks redraw each minute, even during IP editing, and on press runs `timedatectl set-timezone` directly (it's root) and
@@ -171,7 +172,11 @@ replace them. Not yet verified on hardware.
 which `menu.py` sizes at startup to the largest font where every entry in
 `KEY_TEXTS` plus the timezone labels fits the key width. With DejaVu Sans that's
 16px, set by COMPANION. New key or flash text must be added to `KEY_TEXTS`.
-The touchscreen strip uses its own `FONT_LCD` (28px).
+The touchscreen strip uses its own `FONT_LCD` (28px). **One agreed exception:**
+the zone abbreviation on the timezone keys uses `TZ_TITLE_FONT`. It's sized at
+startup (36px max) over every abbreviation the zones use in winter and summer
+(`tz_year_abbrs()`), so it doesn't jump at a DST switch. The clock and any
+label under it stay at `KEY_FONT`.
 
 **Notable paths on the target Pi:** `/opt/sdpi` (the git checkout sdpi runs
 from), `/opt/menu` (venv + `menu.py` + icons), `/opt/companion-scripts` (the

@@ -213,8 +213,13 @@ sdpi_self_update() {
   local branch before after
   branch="$(current_branch)"
   log "Checking for updates to this project ($branch)..."
-  if ! git -C "$SDPI_HOME" fetch --quiet origin "$branch"; then
-    err "Couldn't reach GitHub."
+  if ! git -C "$SDPI_HOME" fetch --quiet origin "$branch" 2>/dev/null; then
+    # Reachable but the fetch failed: the branch was deleted (e.g. a merged test branch).
+    if git -C "$SDPI_HOME" ls-remote --quiet origin >/dev/null 2>&1; then
+      err "The $branch branch no longer exists on GitHub. Switch to main with Advanced -> Switch branch."
+    else
+      err "Couldn't reach GitHub."
+    fi
     return 1
   fi
   before="$(git -C "$SDPI_HOME" rev-parse HEAD)"

@@ -4,7 +4,9 @@ A boot-time picker for a Raspberry Pi running an Elgato Stream Deck + XL: press
 a key to hand the physical device over to either [Bitfocus
 Companion](https://bitfocus.io/companion) or [Companion
 Satellite](https://bitfocus.io/companion-satellite), with a dial-driven screen
-for setting a static IP or switching back to DHCP.
+for setting a static IP or switching back to DHCP. The same controls, plus
+restart, shutdown and timezone, are on a web page at `http://<pi-ip>`, which
+works whichever app has the Stream Deck.
 
 ## Requirements
 
@@ -97,7 +99,10 @@ companion-scripts/  # deployed to /opt/companion-scripts/, for Companion buttons
 
 ## After installing
 
-- Logs: `journalctl -u menu -f`, or **Advanced → View menu app log** in sdpi.
+- Logs: `journalctl -u menu -f` (web page: `journalctl -u menu-web -f`), or
+  **Advanced → View menu app log** in sdpi, which has both.
+- Web control page: `http://<pi-ip>` or `http://<hostname>.local`. The
+  address is also in sdpi's status table.
 - If sdpi says a reboot is needed (kernel update, RTC setup), reboot before
   expecting everything to apply. sdpi offers to reboot when you quit.
 - Bottom-left key hands off to Companion, bottom-right to Satellite; the

@@ -6,9 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A setup manager (`sdpi`) + app that turns a Raspberry Pi with an Elgato Stream
 Deck + XL into a boot-time picker between Bitfocus Companion and Companion
-Satellite, with a touchscreen for static IP / DHCP configuration. There is no
-build system, package manager, or test suite — this is bash + one Python file,
-deployed directly onto a Pi's filesystem as systemd services.
+Satellite, with a touchscreen for static IP / DHCP configuration and a web
+control page for the same controls. There is no build system, package manager,
+or test suite. It's bash plus three Python files (`menu/menu.py`,
+`menu/pi_control.py`, `menu/web.py`) and one HTML page, deployed directly onto
+a Pi's filesystem as systemd services.
 
 ## Commands
 
@@ -17,7 +19,7 @@ There is no build/lint/test tooling in the repo. Verification is:
 - Shell scripts: `shellcheck -x -s bash sdpi install.sh lib/common.sh modules/*.sh companion-scripts/*.sh`
   (not installed on this Mac; `pip install shellcheck-py` into a throwaway
   venv works) plus `bash -n <script>`.
-- `menu/menu.py`: `python3 -m py_compile menu/menu.py` (then remove the generated `__pycache__`).
+- Python: `python3 -m py_compile menu/*.py` (then remove the generated `__pycache__`).
 - Local bash is 3.2; the Pi runs bash 5. Code targets bash 5 (e.g. empty
   arrays under `set -u` are fine there, not on 3.2). `sdpi` only runs `main`
   when executed, so it can be `source`d with system commands stubbed out to
@@ -30,7 +32,10 @@ There is no build/lint/test tooling in the repo. Verification is:
 - No release/tag workflow: the one-liner and sdpi's self-update track a
   branch (`main` by default). Every push to `main` is immediately what gets
   installed — don't reintroduce GitHub Releases pinning without being asked.
-  Put in-progress work on the `test` branch and merge once it's verified.
+  Put in-progress work on a `test` branch (created fresh from `main` when
+  needed; it's deleted after each merge) and merge once it's verified. A Pi
+  left on a deleted branch gets a clear error from Update and needs
+  **Advanced → Switch branch**.
 
 ## Architecture
 
@@ -48,7 +53,9 @@ keyboard; `sdpi` also reattaches to `/dev/tty` if launched via `curl | bash`.
 `<id>_install`, `<id>_remove`, and optionally `<id>_update`. Status comes from
 the Pi's actual state (unit files, BUILD files, the config.txt overlay line),
 never a separate record, so hand-installed or old-installer setups show up
-correctly. `lib/common.sh` holds paths and shared helpers (`confirm`,
+correctly. The one exception is the on-by-default features (web page,
+restart/shutdown keys), which record an opt-out marker in `/etc/menu/` when
+removed. `lib/common.sh` holds paths and shared helpers (`confirm`,
 `choose`, `ask_delete_data`, apt locking). Modules deploy files from the
 checkout into fixed paths (`/opt/menu`, `/opt/companion-scripts`) — Companion
 buttons and the sudoers rule reference those by path, so don't move them.

@@ -73,8 +73,7 @@ _menu_pip() {
 
 _menu_deploy() {
   install -m 0755 "$SDPI_HOME/menu/menu.py" "$MENU_INSTALL_DIR/menu.py"
-  install -m 0644 "$SDPI_HOME/menu/icons/comp256x256.png" "$MENU_ICON_DIR/comp256x256.png"
-  install -m 0644 "$SDPI_HOME/menu/icons/sat256x256.png" "$MENU_ICON_DIR/sat256x256.png"
+  install -m 0644 "$SDPI_HOME"/menu/icons/*.png "$MENU_ICON_DIR/"
 }
 
 _menu_write_service() {

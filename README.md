@@ -33,6 +33,8 @@ sudo sdpi
  StreamdeckXL Pi Boot Menu setup        main @ a1b2c3d
  ------------------------------------------------------------------
   Menu app             Installed (streamdeck 0.10.0, running)
+  Power buttons        Installed (restart and shutdown on the menu)
+  Timezone buttons     Not installed
   Companion            Installed (v5.0.6)
   Satellite            Installed (v3.4.0)
   Companion scripts    Installed (/opt/companion-scripts)
@@ -50,6 +52,7 @@ piped form still works; sdpi reattaches to the terminal itself.)
 | Feature | What it installs |
 | --- | --- |
 | **Menu app** | `menu/menu.py` in a venv at `/opt/menu`, run as `menu.service`. Shows COMPANION/SATELLITE keys plus a touchscreen for static IP / DHCP, and hands the Stream Deck to whichever you pick. A key only appears if that one is installed. Uses the [python-elgato-streamdeck](https://github.com/abcminiuser/python-elgato-streamdeck) library, deliberately unpinned: if the touchscreen ever renders wrong after an update, `menu.py`'s `update_lcd()` (written against `streamdeck` 0.10.0) is the first place to look. |
+| **Power buttons** | RESTART and SHUTDOWN keys on the menu (third row, left and right ends). Pressing one clears the deck to CONFIRM and CANCEL, with the question on the touchscreen; any other key cancels, and nothing happens on its own. On by default with the menu app; **Remove** takes them off the menu and **Install** puts them back. |
 | **Timezone buttons** | One key per zone across the top row of the menu (active zone in green). Pressing one sets the Pi's timezone with `timedatectl`. The list is `/etc/menu/timezones.json` — Eastern, Central, Mountain, Pacific and Arizona by default, up to 9; edit it, then **Update → Menu app**. Set the zone before handing off and Companion starts in it, so no Companion restart is needed. Needs the menu app. |
 | **Companion** | The latest **stable** Bitfocus Companion via Bitfocus's own installer, disabled at boot so the menu decides when it runs. Enables Companion's "Run shell command" action (off by default upstream). |
 | **Satellite** | The latest **stable** Companion Satellite via Bitfocus's own installer, also disabled at boot. |
@@ -92,9 +95,10 @@ companion-scripts/  # deployed to /opt/companion-scripts/, for Companion buttons
 - Logs: `journalctl -u menu -f`, or **Advanced → View menu app log** in sdpi.
 - If sdpi says a reboot is needed (kernel update, RTC setup), reboot before
   expecting everything to apply. sdpi offers to reboot when you quit.
-- Left key hands off to Companion, right key to Satellite; the touchscreen
-  dials edit IP/mask, with buttons to switch between DHCP and a manual static
-  address.
+- Bottom-left key hands off to Companion, bottom-right to Satellite; the
+  touchscreen dials edit IP/mask, with the bottom-middle key switching between
+  DHCP and a manual static address. The third row's end keys restart (left)
+  and shut down (right) the Pi, each after a CONFIRM press.
 
 ### Companion "Run shell command" buttons
 

@@ -43,7 +43,7 @@ the new code. The one-liner uses `bash -c "$(curl ...)"` so stdin stays the
 keyboard; `sdpi` also reattaches to `/dev/tty` if launched via `curl | bash`.
 
 **`sdpi`** is a numbered text menu (Install / Update / Remove / Advanced) over
-`MODULES=(menu timezone companion satellite companion_scripts rtc)`. Each
+`MODULES=(menu power timezone companion satellite companion_scripts rtc)`. Each
 `modules/<id>.sh` defines `<id>_label`, `<id>_installed`, `<id>_detail`,
 `<id>_install`, `<id>_remove`, and optionally `<id>_update`. Status comes from
 the Pi's actual state (unit files, BUILD files, the config.txt overlay line),
@@ -137,6 +137,28 @@ menu *before* handing off means Companion starts fresh in it; that's why this
 avoids the Companion restart the README's manual Companion timezone buttons
 need. Not yet verified on hardware.
 
+**Restart/shutdown keys:** RESTART on key 18 (green, same as DHCP) and
+SHUTDOWN on key 26 (red), with the user's `res256x256.png`/`pwr256x256.png`
+icons. The two keys are on the third row at opposite ends, so reaching for one
+won't hit the other. (Top row = timezone keys; bottom row = COMPANION 27,
+DHCP 31, SATELLITE 35.) They're on by default. The `power` module inverts the
+usual flag: removing it writes `/etc/menu/power-buttons-disabled`, which
+`menu.py` checks. That way existing installs pick up the keys on update with
+nothing to install. Pressing either key blanks the deck except CONFIRM (21) and
+CANCEL (23), and puts the question on the touchscreen (`lcd_message`). Any key
+other than CONFIRM cancels. The confirm screen is deliberately untimed, with
+separate keys, not a "press again within N seconds" countdown. That mirrors the
+IP-edit flow (`editing` has no expiry; `_do_apply()` needs a *different*
+control pressed first), and CONFIRM is never the key that asked, so a double
+press can't confirm. While `confirm_action` is set, `redraw()`,
+`draw_tz_keys()`, `flash_ok()`, `on_dial()` and the refresh loop all stand down,
+so background redraws can't paint over the confirm screen. Shutdown blanks the
+keys and drops the brightness to 0 before `systemctl poweroff`, because USB
+power usually stays on after the Pi halts. If the command fails, the menu comes
+back and flashes FAILED. Runs as root, so no sudoers is needed. This sits
+alongside the Companion-triggered `shutdown-pi.sh`/`reboot-pi.sh`; it doesn't
+replace them. Not yet verified on hardware.
+
 **Key text is one size everywhere** (user's rule): every key uses `KEY_FONT`,
 which `menu.py` sizes at startup to the largest font where every entry in
 `KEY_TEXTS` plus the timezone labels fits the key width. With DejaVu Sans that's
@@ -158,35 +180,3 @@ shell-command-support override — a drop-in specifically because Companion's
 own updater overwrites the base unit file on every update but never touches
 `.d/` override directories), `/var/run/reboot-required` (set by modules that
 need a reboot; sdpi shows a banner and offers to reboot on quit).
-
-## Planned work
-
-**Shutdown/reboot keys on the physical menu itself** (in addition to, not
-instead of, the existing Companion-triggered `companion-scripts/shutdown-pi.sh`/
-`reboot-pi.sh`) — agreed worth doing: there's currently no way to safely
-power down/restart while sitting at the menu screen (fresh boot, or just
-back from `back-to-menu.sh`) without SSH access. Easier than the Companion
-versions too, since `menu.py` already runs as root — no sudoers/shell-command
-dance needed, just `subprocess.run(["shutdown", ...])` directly.
-
-Blocked on the user designing icon assets (they chose icons over text keys) and
-testing how they read on the grid. Decided (2026-09-26):
-- **Placement:** third row, both ends — REBOOT on key 18, SHUT DOWN on key 26,
-  far apart so one can't be hit reaching for the other. (Top row = timezone
-  keys; bottom row = COMPANION 27, DHCP 31, SATELLITE 35.)
-- **Confirm:** pressing either clears the keys to just CONFIRM and CANCEL,
-  untimed; any other key cancels (see the design note below).
-- **Optional:** on by default with the menu app, but removable from sdpi (and
-  re-addable), like a feature that's pre-installed.
-- Any label text must go in `KEY_TEXTS` so the shared key font still fits it.
-
-Confirmation design, when it happens: don't build a timeout-based "press
-once to arm, confirm within N seconds" flow — that pattern doesn't actually
-exist anywhere in this codebase (a prior session incorrectly assumed the
-IP-edit dial flow worked that way; it doesn't, see `on_dial()`/`_do_apply()`/
-`_do_cancel()`). The real IP-edit safety net is untimed: `editing` mode has
-no expiry at all, and the destructive action (`_do_apply()`, dial 5) only
-fires when a *separate* key (dial 4) has first been pressed to navigate to a
-different page — not a second press of the same control, and no clock
-running either way. Mirror that shape here: a dedicated confirm screen with
-its own CONFIRM/CANCEL keys, sitting untimed, not a countdown.

@@ -22,6 +22,11 @@ RIGHT_START_LABEL = "SATELLITE"
 LEFT_START_ICON  = "/opt/menu/icons/comp256x256.png"
 RIGHT_START_ICON = "/opt/menu/icons/sat256x256.png"
 
+# sdpi writes POWER_DISABLED when the user removes the power keys; no file = shown.
+POWER_DISABLED = "/etc/menu/power-buttons-disabled"
+RESTART_ICON   = "/opt/menu/icons/res256x256.png"
+SHUTDOWN_ICON  = "/opt/menu/icons/pwr256x256.png"
+
 SELF_SERVICE_NAME = "menu"
 
 # Written by sdpi's "Timezone buttons" feature; no file = no timezone keys.
@@ -37,6 +42,15 @@ KEY_COLS  = 9
 KEY_LEFT  = 27
 KEY_DHCP  = 31
 KEY_RIGHT = 35
+# Third row, far ends, so one can't be hit while reaching for the other.
+KEY_RESTART  = 18
+KEY_SHUTDOWN = 26
+# Never the key that asked, so a double press can't confirm by accident.
+KEY_CONFIRM  = 21
+KEY_CANCEL   = 23
+
+GREEN = (0, 120, 0)   # DHCP key; restart matches it
+RED   = (150, 0, 0)
 
 # ---------- logging ----------
 def log(s: str):
@@ -265,7 +279,8 @@ FONT_LCD = load_font(28)
 # so the longest of these (plus the timezone labels) fits; add new key/flash
 # text here or it may not fit.
 KEY_TEXTS = [LEFT_START_LABEL, RIGHT_START_LABEL, "DHCP", "Manual",
-             "APPLIED", "TIMEOUT", "BAD IP", "BAD JSON", "NO NM"]
+             "APPLIED", "TIMEOUT", "BAD IP", "BAD JSON", "NO NM",
+             "RESTART", "SHUTDOWN", "CONFIRM", "CANCEL", "FAILED"]
 KEY_FONT = load_font(16)
 
 def pick_key_font(labels, max_w):
@@ -313,6 +328,8 @@ def blank_key(deck):
 
 def flash_ok(color_rgb, text):
     def _flash():
+        if confirm_action:   # e.g. an IP apply finishing behind the confirm screen
+            return
         with deck_lock:
             deck.set_key_image(KEY_DHCP, img_text(deck, text, color_rgb))
         time.sleep(0.6)
@@ -335,7 +352,11 @@ def update_lcd():
                 d.text((x + (ZONE_W - tw) // 2, (h - th) // 2),
                        bot_label, font=FONT_LCD, fill=bot_color)
 
-        if editing:
+        if lcd_message:
+            bb = d.textbbox((0, 0), lcd_message, font=FONT_LCD)
+            d.text(((w - (bb[2] - bb[0])) // 2, (h - (bb[3] - bb[1])) // 2),
+                   lcd_message, font=FONT_LCD, fill=(255, 255, 255))
+        elif editing:
             octets = edit_ip if dial_page == "ip" else edit_mask
             for i in range(4):
                 draw_zone(i, bot_label=str(octets[i]), bot_color=(255, 255, 0))
@@ -369,6 +390,8 @@ edit_ip, edit_mask = cur_ip[:], cur_mask[:]
 dhcp_on = False
 tz_buttons  = []
 active_zone = ""
+confirm_action = None   # "restart"/"shutdown" while the confirm screen is up
+lcd_message    = None   # full-width touchscreen text, replacing the IP zones
 
 def refresh_current():
     global cur_ip, cur_mask
@@ -417,9 +440,14 @@ def draw_static_keys():
                                       (KEY_RIGHT, RIGHT_START_LABEL, RIGHT_START_ICON, RIGHT_START_SERVICE)):
             if service_installed(svc):
                 deck.set_key_image(key, img_icon(deck, label, (0, 60, 140), icon))
+        if power_buttons_enabled():
+            deck.set_key_image(KEY_RESTART,  img_icon(deck, "RESTART",  GREEN, RESTART_ICON))
+            deck.set_key_image(KEY_SHUTDOWN, img_icon(deck, "SHUTDOWN", RED,   SHUTDOWN_ICON))
     draw_tz_keys()
 
 def draw_tz_keys():
+    if confirm_action:
+        return
     with deck_lock:
         for key, label, zone in tz_buttons:
             bg = (0, 120, 0) if zone == active_zone else (0, 60, 140)
@@ -427,12 +455,70 @@ def draw_tz_keys():
 
 # ---------- redraw (DHCP button + LCD) ----------
 def redraw():
+    if confirm_action:
+        return
     with deck_lock:
         if dhcp_on:
-            deck.set_key_image(KEY_DHCP, img_text(deck, "DHCP",   (0, 120, 0)))
+            deck.set_key_image(KEY_DHCP, img_text(deck, "DHCP",   GREEN))
         else:
             deck.set_key_image(KEY_DHCP, img_text(deck, "Manual", (0, 80, 150)))
     update_lcd()
+
+# ---------- restart / shutdown ----------
+POWER_ACTIONS = {
+    "restart":  ("RESTART THE PI?",   "RESTARTING...",    ["systemctl", "reboot"],   GREEN),
+    "shutdown": ("SHUT DOWN THE PI?", "SHUTTING DOWN...", ["systemctl", "poweroff"], RED),
+}
+
+def power_buttons_enabled():
+    return not Path(POWER_DISABLED).exists()
+
+def show_only(images):
+    """Blank every key except the given {key: image}."""
+    blank = blank_key(deck)
+    with deck_lock:
+        for k in range(36):
+            deck.set_key_image(k, images.get(k, blank))
+
+def start_power_confirm(action):
+    global confirm_action, lcd_message
+    prompt, _busy, _cmd, color = POWER_ACTIONS[action]
+    confirm_action = action
+    lcd_message = prompt
+    show_only({KEY_CONFIRM: img_text(deck, "CONFIRM", color),
+               KEY_CANCEL:  img_text(deck, "CANCEL", (0, 60, 140))})
+    update_lcd()
+
+def cancel_power_confirm():
+    global confirm_action, lcd_message
+    confirm_action = None
+    lcd_message = None
+    draw_static_keys()
+    redraw()
+
+def do_power_action(action):
+    global lcd_message
+    _prompt, busy, cmd, _color = POWER_ACTIONS[action]
+    log(f"{action} confirmed from the menu")
+    lcd_message = busy
+    show_only({})
+    update_lcd()
+    if action == "shutdown":
+        # USB power usually stays on after the Pi halts; going dark shows it's off.
+        time.sleep(1.5)
+        with deck_lock:
+            deck.set_brightness(0)
+    try:
+        r = run(cmd, timeout=10)
+        err = None if r.returncode == 0 else r.stderr.strip()
+    except Exception as e:
+        err = str(e)
+    if err is not None:
+        log(f"{action} failed: {err}")
+        with deck_lock:
+            deck.set_brightness(BRIGHTNESS)
+        cancel_power_confirm()
+        flash_ok(RED, "FAILED")
 
 active_key      = None
 active_key_lock = threading.Lock()
@@ -473,6 +559,9 @@ def _do_cancel():
 # ---------- Dial callback ----------
 def on_dial(_, dial, event, value):
     global editing, dial_page
+
+    if confirm_action:
+        return
 
     if event == DialEventType.TURN:
         if dhcp_on or dial > 3 or _network_op_lock.locked():
@@ -655,6 +744,17 @@ def on_key(_, key, pressed):
             return
         active_key = key
 
+    if confirm_action:
+        if key == KEY_CONFIRM:
+            do_power_action(confirm_action)
+        else:
+            cancel_power_confirm()
+        return
+
+    if key in (KEY_RESTART, KEY_SHUTDOWN) and power_buttons_enabled():
+        start_power_confirm("restart" if key == KEY_RESTART else "shutdown")
+        return
+
     if key == KEY_DHCP:
         refresh_dhcp_state()
         if dhcp_on:
@@ -728,7 +828,7 @@ redraw()
 t_next = time.time() + AUTO_REFRESH_SECS
 while True:
     time.sleep(0.05)
-    if editing:
+    if editing or confirm_action:
         continue
     if time.time() < t_next:
         continue

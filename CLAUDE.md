@@ -169,9 +169,16 @@ back from `back-to-menu.sh`) without SSH access. Easier than the Companion
 versions too, since `menu.py` already runs as root — no sudoers/shell-command
 dance needed, just `subprocess.run(["shutdown", ...])` directly.
 
-Blocked on the user designing icon assets and testing how they read on the
-physical 36-key grid before wiring up behavior. The top row is now taken by
-the timezone keys (when that feature is installed).
+Blocked on the user designing icon assets (they chose icons over text keys) and
+testing how they read on the grid. Decided (2026-09-26):
+- **Placement:** third row, both ends — REBOOT on key 18, SHUT DOWN on key 26,
+  far apart so one can't be hit reaching for the other. (Top row = timezone
+  keys; bottom row = COMPANION 27, DHCP 31, SATELLITE 35.)
+- **Confirm:** pressing either clears the keys to just CONFIRM and CANCEL,
+  untimed; any other key cancels (see the design note below).
+- **Optional:** on by default with the menu app, but removable from sdpi (and
+  re-addable), like a feature that's pre-installed.
+- Any label text must go in `KEY_TEXTS` so the shared key font still fits it.
 
 Confirmation design, when it happens: don't build a timeout-based "press
 once to arm, confirm within N seconds" flow — that pattern doesn't actually

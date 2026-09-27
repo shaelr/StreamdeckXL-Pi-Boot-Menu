@@ -25,14 +25,34 @@ satellite_install() {
   menu_redraw_if_running
 }
 
+# Bitfocus's own updater, with its version picker (stable, beta or a specific build).
 satellite_update() {
   local was_active=0
-  is_active satellite && was_active=1
-  satellite_install
-  if (( was_active )); then
-    log "Restarting Satellite to load the new version..."
-    systemctl restart satellite
-  fi
+  if is_active satellite; then was_active=1; fi
+  satellite_restore_fnm
+  log "Running Satellite's updater. Pick the version to install..."
+  /usr/local/sbin/satellite-update
+  # It always starts Satellite when it finishes; if the menu or Companion had
+  # the deck, give it back.
+  if (( ! was_active )); then systemctl stop satellite; fi
+  log "Satellite is now $(satellite_detail)."
+}
+
+# Satellite runs on Node.js from /opt/fnm, which Companion's updater deletes.
+# Reinstall fnm and Satellite's Node version the way Satellite's installer and
+# updater do, without reinstalling Satellite (so a version picked in
+# satellite-update stays).
+satellite_restore_fnm() {
+  if [[ -x /opt/fnm/fnm && -x /opt/fnm/aliases/default/bin/node ]]; then return 0; fi
+  warn "Satellite's Node.js runtime (/opt/fnm) is missing; Companion's updater removes it. Putting it back..."
+  curl "${CURL_OPTS[@]}" https://fnm.vercel.app/install | bash -s -- --install-dir /opt/fnm --skip-shell
+  (
+    export FNM_DIR=/opt/fnm PATH="/opt/fnm:$PATH"
+    eval "$(fnm env --shell bash)"
+    cd /usr/local/src/companion-satellite || exit
+    fnm use --install-if-missing
+    fnm default "$(fnm current)"
+  )
 }
 
 satellite_remove() {

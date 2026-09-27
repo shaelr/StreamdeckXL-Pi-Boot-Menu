@@ -67,7 +67,10 @@ piped form still works; sdpi reattaches to the terminal itself.)
 **Update** has two quick options: **Everything** (this project, Companion,
 Satellite and system packages), or **This project only** (pulls the latest code
 and redeploys the menu app and Companion scripts, skipping the slow Companion,
-Satellite and apt steps).
+Satellite and apt steps). Updating Companion or Satellite runs Bitfocus's own
+`companion-update` / `satellite-update`, so you choose the version (stable,
+beta or a specific build). If the menu had the Stream Deck, it keeps it
+afterwards.
 
 **Remove** asks whether to keep each feature's saved configuration (e.g.
 Companion's buttons and pages) so a reinstall can bring it back, or delete it.
@@ -104,7 +107,7 @@ companion-scripts/  # deployed to /opt/companion-scripts/, for Companion buttons
 - Web control page: `http://<pi-ip>` or `http://<hostname>.local`. The
   address is also in sdpi's status table.
 - If sdpi says a reboot is needed (kernel update, RTC setup), reboot before
-  expecting everything to apply. sdpi offers to reboot when you quit.
+  expecting everything to apply. sdpi asks right after the step that needs it (Install → Everything asks once, at the end), and again when you quit if you said no.
 - Bottom-left key hands off to Companion, bottom-right to Satellite; the
   touchscreen dials edit IP/mask, with the bottom-middle key switching between
   DHCP and a manual static address. The third row's end keys restart (left)

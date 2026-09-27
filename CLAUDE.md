@@ -73,13 +73,18 @@ from GitHub, `COMPANION_BUILD=stable` / `SATELLITE_BUILD=stable` env vars), then
 disabled at boot so the menu decides which runs. Remove reverses what their
 installers create (they ship no uninstaller) and asks whether to keep the
 saved config (`/home/<user>`, `/etc/companion`, `/boot/satellite-config`).
-**Gotcha:** companion-pi's `update.sh` deletes `/opt/fnm` ("fnm is no longer
-used"), but `satellite.service` runs Node from `/opt/fnm`. So any Companion
-install/update re-runs Satellite's installer afterwards if Satellite is
-installed (`_companion_restore_satellite_runtime`); `SDPI_SKIP_SATELLITE_FIX=1`
-skips that when Satellite is reinstalled right after anyway (Install/Update
-Everything). The old single installer only survived this by always installing
-Companion before Satellite.
+**Updating** them runs Bitfocus's own `companion-update` / `satellite-update`,
+so the user picks the version (user's request). Those wrappers always
+`systemctl start` their app at the end, so sdpi stops it again if it wasn't
+running before; otherwise it would fight the menu for the deck.
+**Gotcha:** companion-pi's `update.sh` (run by its installer and by
+`companion-update`) deletes `/opt/fnm` ("fnm is no longer used"), but
+`satellite.service` *and* Satellite's `update.sh` run Node from `/opt/fnm`.
+`satellite_restore_fnm` reinstalls just fnm and Satellite's Node version, the
+same way Satellite's installer and updater do, without reinstalling
+Satellite, so a picked version stays. It runs after any Companion
+install/update (`_companion_restore_satellite_runtime`) and before
+`satellite-update`. It's a no-op if fnm is intact.
 
 **The core mechanic — one USB device, two mutually-exclusive owners:** the
 Stream Deck + XL can only be claimed by one process at a time (`menu.py`'s
@@ -245,4 +250,7 @@ Bitfocus's own installer already permits `companion` to run
 shell-command-support override — a drop-in specifically because Companion's
 own updater overwrites the base unit file on every update but never touches
 `.d/` override directories), `/var/run/reboot-required` (set by modules that
-need a reboot; sdpi shows a banner and offers to reboot on quit).
+need a reboot). `run()` offers a reboot right after any successful action
+that newly set it (Enter = yes). Install → Everything suppresses that per
+step (`SDPI_NO_REBOOT_PROMPT`) and offers once at the end. The banner, and the
+offer on quit, remain for anyone who said no.

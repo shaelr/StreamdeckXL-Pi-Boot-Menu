@@ -28,14 +28,17 @@ companion_install() {
   menu_redraw_if_running
 }
 
+# Bitfocus's own updater, with its version picker (stable, beta or a specific build).
 companion_update() {
   local was_active=0
-  is_active companion && was_active=1
-  companion_install
-  if (( was_active )); then
-    log "Restarting Companion to load the new version..."
-    systemctl restart companion
-  fi
+  if is_active companion; then was_active=1; fi
+  log "Running Companion's updater. Pick the version to install..."
+  /usr/local/sbin/companion-update
+  # It always starts Companion when it finishes; if the menu or Satellite had
+  # the deck, give it back.
+  if (( ! was_active )); then systemctl stop companion; fi
+  _companion_restore_satellite_runtime
+  log "Companion is now $(companion_detail)."
 }
 
 companion_remove() {
@@ -80,13 +83,9 @@ EOF
   systemctl daemon-reload
 }
 
-# companion-pi's update.sh deletes /opt/fnm ("fnm is no longer used"), but
-# Satellite's service runs its Node.js from /opt/fnm. Re-running Satellite's
-# installer puts it back (and skips the download if Satellite is already current).
-# Set SDPI_SKIP_SATELLITE_FIX when Satellite is about to be reinstalled anyway.
+# companion-pi's update.sh (run by its installer and companion-update) deletes
+# /opt/fnm ("fnm is no longer used"), but Satellite's service and its updater
+# run Node.js from /opt/fnm. Put fnm back without touching Satellite itself.
 _companion_restore_satellite_runtime() {
-  if satellite_installed && [[ -z "${SDPI_SKIP_SATELLITE_FIX:-}" ]]; then
-    warn "Companion's installer removes /opt/fnm, which Satellite needs. Re-running Satellite's installer to restore it..."
-    satellite_update
-  fi
+  if satellite_installed; then satellite_restore_fnm; fi
 }

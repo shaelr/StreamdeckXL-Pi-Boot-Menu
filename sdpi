@@ -20,15 +20,29 @@ unset _m
 # Runs one action in a subshell with errexit, so a failure stops that action
 # and returns to the menu instead of killing sdpi. Never call this inside an
 # if/&&/|| condition: bash silently disables errexit in that context.
+# If the action succeeds and makes a reboot necessary, offers one right away,
+# unless SDPI_NO_REBOOT_PROMPT is set (a step inside a bigger install that
+# offers it once at the end).
 run() {
-  local rc
+  local rc had_flag=""
+  if [[ -f "$REBOOT_FLAG" ]]; then had_flag=1; fi
   echo
   ( set -eo pipefail; "$@" )
   rc=$?
   echo
   if (( rc == 0 )); then log "Done."; else err "Stopped. See the messages above."; fi
-  pause
+  if (( rc == 0 )) && [[ -z "$had_flag" && -z "${SDPI_NO_REBOOT_PROMPT:-}" && -f "$REBOOT_FLAG" ]]; then
+    offer_reboot
+  else
+    pause
+  fi
   return "$rc"
+}
+
+offer_reboot() {
+  if confirm " A reboot is needed to finish applying changes. Reboot now?" y; then
+    reboot
+  fi
 }
 
 current_branch() { git -C "$SDPI_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?"; }
@@ -105,15 +119,19 @@ install_menu() {
         # Ask everything up front so the long install can run unattended.
         # RTC first: timezone buttons mostly matter on a Pi that keeps time
         # offline, so the RTC answer sets the timezone question's default.
-        local with_tz="" tz_default=n
+        local with_tz="" tz_default=n had_flag="" rc
+        if [[ -f "$REBOOT_FLAG" ]]; then had_flag=1; fi
         if _rtc_is_pi5; then
           tz_default=y
         elif confirm " Do you have an RTC (real-time clock) module installed?" n; then
           tz_default=y
-          run rtc_install
+          SDPI_NO_REBOOT_PROMPT=1 run rtc_install
         fi
         if confirm " Add timezone buttons to the menu?" "$tz_default"; then with_tz=1; fi
-        SDPI_WITH_TZ="$with_tz" run install_everything ;;
+        SDPI_WITH_TZ="$with_tz" SDPI_NO_REBOOT_PROMPT=1 run install_everything
+        rc=$?
+        # One reboot offer for the whole setup (RTC and kernel updates), at the end.
+        if (( rc == 0 )) && [[ -z "$had_flag" && -f "$REBOOT_FLAG" ]]; then offer_reboot; fi ;;
       *)
         if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 2 && choice < 2 + ${#MODULES[@]} )); then
           m="${MODULES[choice - 2]}"
@@ -128,8 +146,7 @@ install_menu() {
 
 install_everything() {
   system_upgrade
-  # Satellite is (re)installed right after, which restores /opt/fnm anyway.
-  SDPI_SKIP_SATELLITE_FIX=1 companion_install
+  companion_install
   satellite_install
   companion_scripts_install
   # Last, so it starts once with Companion and Satellite already in place.
@@ -177,7 +194,7 @@ update_menu() {
 
 update_components() {
   system_upgrade
-  if companion_installed; then SDPI_SKIP_SATELLITE_FIX=1 companion_update; fi
+  if companion_installed; then companion_update; fi
   if satellite_installed; then satellite_update; fi
   update_project
   apt_cleanup

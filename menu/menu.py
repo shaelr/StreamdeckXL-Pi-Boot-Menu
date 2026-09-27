@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import sys, time, json, subprocess, re, threading
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont
 from StreamDeck.DeviceManager import DeviceManager
@@ -249,6 +251,24 @@ def load_timezone_buttons():
     start = (KEY_COLS - len(valid)) // 2
     return [(start + i, label, zone) for i, (label, zone) in enumerate(valid)]
 
+def tz_key_faces():
+    """[(key, title, clock, zone), ...] for the timezone keys. The title is the
+    zone's official abbreviation right now (EDT/EST follow DST), or its label
+    when the abbreviation is only numeric (e.g. "+04") or another key currently
+    shares it (Mountain and Arizona are both MST in winter)."""
+    faces = []
+    for key, label, zone in tz_buttons:
+        try:
+            now = datetime.now(ZoneInfo(zone))
+            abbr, clock = now.strftime("%Z"), now.strftime("%-I:%M %p")
+        except Exception as e:
+            log(f"clock for {zone} failed: {e}")
+            abbr, clock = "", None
+        faces.append((key, label, abbr, clock, zone))
+    abbrs = [f[2] for f in faces]
+    return [(key, abbr if abbr[:1].isalpha() and abbrs.count(abbr) == 1 else label, clock, zone)
+            for key, label, abbr, clock, zone in faces]
+
 def current_zone():
     try:
         return str(Path("/etc/localtime").resolve()).split("zoneinfo/", 1)[1]
@@ -281,7 +301,8 @@ FONT_LCD = load_font(28)
 # text here or it may not fit.
 KEY_TEXTS = [LEFT_START_LABEL, RIGHT_START_LABEL, "DHCP", "Manual",
              "APPLIED", "TIMEOUT", "BAD IP", "BAD JSON", "NO NM",
-             "RESTART", "SHUTDOWN", "CONFIRM", "CANCEL", "FAILED"]
+             "RESTART", "SHUTDOWN", "CONFIRM", "CANCEL", "FAILED",
+             "12:00 PM"]   # widest timezone-key clock
 KEY_FONT = load_font(16)
 
 def pick_key_font(labels, max_w):
@@ -450,10 +471,11 @@ def draw_static_keys():
 def draw_tz_keys():
     if confirm_action:
         return
+    faces = tz_key_faces()
     with deck_lock:
-        for key, label, zone in tz_buttons:
-            bg = (0, 120, 0) if zone == active_zone else (0, 60, 140)
-            deck.set_key_image(key, img_text(deck, label, bg))
+        for key, title, clock, zone in faces:
+            bg = GREEN if zone == active_zone else (0, 0, 0)
+            deck.set_key_image(key, img_text(deck, title, bg, sub=clock))
 
 # ---------- redraw (DHCP button + LCD) ----------
 def redraw():
@@ -827,16 +849,30 @@ KEY_FONT    = pick_key_font(KEY_TEXTS + [label for _, label, _ in tz_buttons],
                             deck.key_image_format()["size"][0] - 8)
 draw_static_keys()
 redraw()
+drawn_zone, drawn_minute = active_zone, int(time.time() // 60)
 
 # ---------- auto-refresh loop ----------
 t_next = time.time() + AUTO_REFRESH_SECS
 while True:
     time.sleep(0.05)
-    if editing or confirm_action:
-        continue
-    if time.time() < t_next:
+    if confirm_action or time.time() < t_next:
         continue
     t_next = time.time() + AUTO_REFRESH_SECS
+
+    # Catches a zone changed some other way (SSH, sdpi) so the lit key stays
+    # right, and ticks the clocks over each minute.
+    if tz_buttons:
+        zone = current_zone()
+        minute = int(time.time() // 60)
+        if zone != active_zone:
+            active_zone = zone
+            time.tzset()
+        if zone != drawn_zone or minute != drawn_minute:
+            drawn_zone, drawn_minute = zone, minute
+            draw_tz_keys()
+
+    if editing:
+        continue
 
     new_ip, new_mask = get_ip_mask()
     if new_ip != cur_ip or new_mask != cur_mask:
@@ -850,11 +886,3 @@ while True:
     refresh_dhcp_state()
     if dhcp_on != prev_dhcp:
         redraw()
-
-    # Catches a zone changed some other way (SSH, sdpi) so the lit key stays right.
-    if tz_buttons:
-        zone = current_zone()
-        if zone != active_zone:
-            active_zone = zone
-            time.tzset()
-            draw_tz_keys()

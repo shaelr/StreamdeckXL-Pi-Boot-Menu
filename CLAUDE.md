@@ -129,9 +129,13 @@ thing to check, not a StreamDeck+XL hardware issue.
 **Timezone buttons:** the `timezone` module just writes/removes
 `/etc/menu/timezones.json` (a `[{label, zone}]` list, the user's five by
 default) and restarts the menu; `menu.py` does the rest. With the file present
-it centres up to 9 text keys on the top row, lights the active zone (read from
-the `/etc/localtime` symlink, rechecked every refresh tick so SSH/sdpi changes
-show up), and on press runs `timedatectl set-timezone` directly (it's root) and
+it centres up to 9 keys on the top row. Each shows the zone's tz-database
+abbreviation and its current time (`tz_key_faces()`: EDT/EST follow DST; the
+config `label` is only a fallback when the abbreviation is numeric or shared,
+e.g. Mountain/Arizona are both MST in winter, user's request). The active zone
+is green and the rest black; the active zone is read from the `/etc/localtime`
+symlink and rechecked every refresh tick, so SSH/sdpi changes show up. The
+clocks redraw each minute, even during IP editing, and on press runs `timedatectl set-timezone` directly (it's root) and
 calls `time.tzset()` so its own log timestamps follow. Setting the zone from the
 menu *before* handing off means Companion starts fresh in it; that's why this
 avoids the Companion restart the README's manual Companion timezone buttons

@@ -33,6 +33,7 @@ sudo sdpi
  StreamdeckXL Pi Boot Menu setup        main @ a1b2c3d
  ------------------------------------------------------------------
   Menu app             Installed (streamdeck 0.10.0, running)
+  Web control page     Installed (http://10.0.1.50, running)
   Restart button       Installed (restart the Pi from the menu)
   Shutdown button      Installed (shut down the Pi from the menu)
   Timezone buttons     Not installed
@@ -53,6 +54,7 @@ piped form still works; sdpi reattaches to the terminal itself.)
 | Feature | What it installs |
 | --- | --- |
 | **Menu app** | `menu/menu.py` in a venv at `/opt/menu`, run as `menu.service`. Shows COMPANION/SATELLITE keys plus a touchscreen for static IP / DHCP, and hands the Stream Deck to whichever you pick. A key only appears if that one is installed. Uses the [python-elgato-streamdeck](https://github.com/abcminiuser/python-elgato-streamdeck) library, deliberately unpinned: if the touchscreen ever renders wrong after an update, `menu.py`'s `update_lcd()` (written against `streamdeck` 0.10.0) is the first place to look. |
+| **Web control page** | The menu in a browser: open `http://<pi-ip>` (or `http://<hostname>.local`) on any phone or laptop on the same network. Hand the Stream Deck to the menu, Companion or Satellite; restart or shut down the Pi; pick any timezone on the Pi from a list; switch DHCP/manual and set the IP and mask (gateway and DNS are the same address ending in .1, like the deck). It's always running, so it's the way back when Satellite has the deck and the host has no buttons for it. After an IP change the page follows the Pi to its new address. No password: anyone on the network can use it, as with Companion's own web page. On by default with the menu app; **Remove** turns it off and updates won't bring it back. |
 | **Restart button** / **Shutdown button** | RESTART and SHUTDOWN keys on the menu (third row, left and right ends). Pressing one clears the deck to CONFIRM and CANCEL, with the question on the touchscreen; any other key cancels, and nothing happens on its own. Both are on by default with the menu app. Each is a separate feature: **Remove** takes that key off the menu and **Install** puts it back. Removing them doesn't touch the Companion scripts, so Companion's shutdown/reboot buttons keep working. |
 | **Timezone buttons** | One key per zone across the top row of the menu, each showing the zone's official abbreviation in large text with its current 24-hour time underneath (e.g. EDT / 14:00; switches to EST with daylight saving). The Pi's current zone is lit green, the others are black. When two keys share an abbreviation (Mountain and Arizona are both MST in winter) or a zone has only a numeric one, the zone's name from the list is added under the time. Pressing one sets the Pi's timezone with `timedatectl`. The list is `/etc/menu/timezones.json` — Eastern, Central, Mountain, Pacific and Arizona by default, up to 9; edit it, then **Update → Menu app**. Set the zone before handing off and Companion starts in it, so no Companion restart is needed. Needs the menu app. |
 | **Companion** | The latest **stable** Bitfocus Companion via Bitfocus's own installer, disabled at boot so the menu decides when it runs. Enables Companion's "Run shell command" action (off by default upstream). |
@@ -87,6 +89,8 @@ lib/common.sh       # shared helpers for sdpi and its modules
 modules/            # one file per feature: install, update, remove and status
 menu/
   menu.py           # the menu app, deployed to /opt/menu/menu.py
+  pi_control.py     # network, timezone and deck-switching code shared by menu.py and web.py
+  web.py, web/      # the web control page
   icons/            # deployed to /opt/menu/icons/
 companion-scripts/  # deployed to /opt/companion-scripts/, for Companion buttons to call
 ```

@@ -43,7 +43,7 @@ the new code. The one-liner uses `bash -c "$(curl ...)"` so stdin stays the
 keyboard; `sdpi` also reattaches to `/dev/tty` if launched via `curl | bash`.
 
 **`sdpi`** is a numbered text menu (Install / Update / Remove / Advanced) over
-`MODULES=(menu restart_key shutdown_key timezone companion satellite companion_scripts rtc)`. Each
+`MODULES=(menu web restart_key shutdown_key timezone companion satellite companion_scripts rtc)`. Each
 `modules/<id>.sh` defines `<id>_label`, `<id>_installed`, `<id>_detail`,
 `<id>_install`, `<id>_remove`, and optionally `<id>_update`. Status comes from
 the Pi's actual state (unit files, BUILD files, the config.txt overlay line),
@@ -142,6 +142,42 @@ menu *before* handing off means Companion starts fresh in it; that's why this
 avoids the Companion restart the README's manual Companion timezone buttons
 need. Not yet verified on hardware.
 
+**Web control page** (`web` module, user's design, 2026-09-27): `menu/web.py`
+serves `menu/web/index.html` plus a small JSON API on port 80, using only
+Python's built-in `http.server`, as `menu-web.service` (root, always on,
+`Restart=always`). It's deliberately separate from `menu.service`: it has to
+work while Companion or Satellite has the deck. That's its reason to exist:
+getting back from a Satellite host that has no back-to-menu, restart or
+shutdown buttons. The network, timezone, logging and USB-reset code moved
+from `menu.py` into `menu/pi_control.py` unchanged, and both apps import it.
+`pi_control.py` must never import StreamDeck or Pillow. The two apps never
+talk to each other; each reads the Pi's real state, and the menu's 1s
+refresh loop picks up web changes. Deck switching from the web
+(`pi_control.switch_deck`) stops whichever owner is active, resets the USB
+port, then starts the target. That's the same sequence as `handoff_to()` and
+`back-to-menu.sh`, which stay as they are because they run *inside* an owner.
+Design decisions:
+- **No password** (the user's choice). Companion's own UI is just as open.
+  POSTs must be `application/json`, so a cross-site page can't trigger them
+  without a CORS preflight, which the server never approves.
+- **Same network options as the deck:** DHCP or manual IP + mask only;
+  gateway/DNS are `.1`.
+- **Timezone:** a dropdown of every zone from `timedatectl list-timezones`,
+  independent of the deck's `timezones.json`.
+- **Replies first:** network changes and power actions are applied ~0.5-1s
+  *after* replying, because they cut the connection.
+- **Following an IP change:** the page shows a "Now at" link as a failsafe,
+  and polls the new address's `/api/ping` (`no-cors`) to follow it
+  automatically. For DHCP it polls `http://<hostname>.local`, which relies on
+  Pi OS's avahi.
+- **On by default:** `menu_install` calls `web_install`; `update_project`
+  calls `web_install_if_wanted`. `web_remove` leaves
+  `/etc/menu/web-disabled` so updates don't re-add a page the user removed.
+  `menu_remove` removes the web page first, since its code lives in
+  `/opt/menu`.
+
+Not yet verified on hardware.
+
 **Restart/shutdown keys:** RESTART on key 18 (green, same as DHCP) and
 SHUTDOWN on key 26 (red), with the user's `res256x256.png`/`pwr256x256.png`
 icons. The two keys are on the third row at opposite ends, so reaching for one
@@ -180,7 +216,8 @@ startup (28px max, same as the touchscreen font) over every abbreviation the zon
 the clock stays at `KEY_FONT`.
 
 **Notable paths on the target Pi:** `/opt/sdpi` (the git checkout sdpi runs
-from), `/opt/menu` (venv + `menu.py` + icons), `/opt/companion-scripts` (the
+from), `/opt/menu` (venv, `menu.py`, `pi_control.py`, `web.py`, `web/`,
+icons), `/etc/systemd/system/menu-web.service` (the web control page), `/opt/companion-scripts` (the
 three Companion-triggerable scripts — kept separate from `/opt/menu` since
 they're a Companion-integration concern), `/etc/menu/menu.json` (runtime IP
 config `menu.py` reads/writes itself), `/var/log/menu.log` (shared log for

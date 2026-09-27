@@ -26,6 +26,8 @@ menu_install() {
   _menu_write_service
   systemctl enable menu
   _menu_start_if_free
+  # On by default; removable on its own from sdpi.
+  web_install
 }
 
 menu_update() {
@@ -38,6 +40,8 @@ menu_update() {
 
 menu_remove() {
   log "Removing the menu app..."
+  # The web page's code lives in /opt/menu, which goes below.
+  if web_installed; then web_remove; fi
   systemctl disable --now menu 2>/dev/null || true
   rm -f "$MENU_SERVICE_FILE"
   systemctl daemon-reload
@@ -73,6 +77,9 @@ _menu_pip() {
 
 _menu_deploy() {
   install -m 0755 "$SDPI_HOME/menu/menu.py" "$MENU_INSTALL_DIR/menu.py"
+  install -m 0644 "$SDPI_HOME/menu/pi_control.py" "$SDPI_HOME/menu/web.py" "$MENU_INSTALL_DIR/"
+  mkdir -p "$MENU_INSTALL_DIR/web"
+  install -m 0644 "$SDPI_HOME/menu/web/index.html" "$MENU_INSTALL_DIR/web/index.html"
   install -m 0644 "$SDPI_HOME"/menu/icons/*.png "$MENU_ICON_DIR/"
 }
 

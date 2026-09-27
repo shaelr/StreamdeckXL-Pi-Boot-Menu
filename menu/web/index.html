@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Deck Pi</title>
+<style>
+  :root { --bg:#111; --card:#1c1c1c; --line:#333; --text:#eee; --dim:#999;
+          --green:#007800; --red:#960000; --btn:#333; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:16px/1.4 system-ui, -apple-system, "DejaVu Sans", sans-serif; }
+  main { max-width:900px; margin:0 auto; padding:16px;
+         display:grid; gap:16px; grid-template-columns:1fr; }
+  @media (min-width:700px) { main { grid-template-columns:1fr 1fr; } #status { grid-column:1 / -1; } }
+  h1 { font-size:20px; margin:16px 16px 0; max-width:900px; }
+  @media (min-width:932px) { h1 { margin:16px auto 0; padding:0 16px; } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  h2 { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 0 10px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button { font:inherit; color:var(--text); background:var(--btn); border:0; border-radius:8px;
+           padding:10px 16px; cursor:pointer; min-height:44px; }
+  button:disabled { cursor:default; }
+  button.on { background:var(--green); }
+  button.danger { background:var(--red); }
+  button.go { background:var(--green); }
+  select, input { font:inherit; color:var(--text); background:#000; border:1px solid var(--line);
+                  border-radius:8px; padding:10px; min-height:44px; flex:1 1 160px; min-width:0; }
+  label { font-size:13px; color:var(--dim); display:block; flex:1 1 160px; }
+  label input { width:100%; margin-top:4px; }
+  .note { font-size:13px; color:var(--dim); margin:8px 0 0; }
+  #status dl { display:grid; grid-template-columns:auto 1fr; gap:4px 16px; margin:0; }
+  #status dt { color:var(--dim); }
+  #status dd { margin:0; }
+  #toast { position:fixed; left:16px; right:16px; bottom:16px; max-width:600px; margin:0 auto;
+           background:var(--red); padding:12px 16px; border-radius:8px; display:none; }
+  #overlay { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none;
+             align-items:center; justify-content:center; padding:24px; text-align:center; }
+  #overlay div { max-width:480px; }
+  #overlay a { color:#8cf; font-size:22px; word-break:break-all; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<h1>Stream Deck Pi</h1>
+<main>
+  <section id="status">
+    <h2>Status</h2>
+    <dl>
+      <dt>Stream Deck</dt><dd id="s-owner">…</dd>
+      <dt>Network</dt><dd id="s-net">…</dd>
+      <dt>Time</dt><dd id="s-time">…</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Stream Deck</h2>
+    <div class="row" id="deck"></div>
+    <p class="note">Hands the Stream Deck to the menu, Companion or Satellite.</p>
+  </section>
+
+  <section>
+    <h2>Timezone</h2>
+    <div class="row">
+      <select id="tz" aria-label="Timezone"></select>
+      <button id="tz-set">Set</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Network</h2>
+    <div class="row">
+      <button id="net-dhcp">DHCP</button>
+      <button id="net-manual">Manual</button>
+    </div>
+    <form id="manual" hidden>
+      <div class="row" style="margin-top:10px">
+        <label>IP address<input id="ip" inputmode="decimal" autocomplete="off"></label>
+        <label>Subnet mask<input id="mask" inputmode="decimal" autocomplete="off"></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="go" type="submit">Apply</button></div>
+      <p class="note" id="gw-note">Gateway and DNS: the same address ending in .1, like the deck.</p>
+    </form>
+  </section>
+
+  <section>
+    <h2>Power</h2>
+    <div class="row">
+      <button class="go" id="restart">Restart</button>
+      <button class="danger" id="shutdown">Shut down</button>
+    </div>
+  </section>
+</main>
+<div id="toast" role="alert"></div>
+<div id="overlay"><div id="overlay-body"></div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const NAMES = { menu: "Menu", companion: "Companion", satellite: "Satellite" };
+let st = null, tzDirty = false, busy = false, manualOpen = false;
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.style.display = "none", 5000);
+}
+function overlay(html) {
+  busy = !!html;
+  $("overlay-body").innerHTML = html || "";
+  $("overlay").style.display = html ? "flex" : "none";
+}
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `Error ${r.status}`);
+  return data;
+}
+// True once http://<host> answers. no-cors: we only need to know it's there.
+async function reachable(base) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 1500);
+  try { await fetch(`${base}/api/ping?${Date.now()}`, { mode: "no-cors", cache: "no-store", signal: c.signal }); return true; }
+  catch { return false; }
+  finally { clearTimeout(t); }
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function render() {
+  const s = st;
+  $("s-owner").textContent = s.owner ? NAMES[s.owner] : "Nothing (starting up?)";
+  $("s-net").textContent = s.ip
+    ? `${s.ip} / ${s.mask} (${s.dhcp === null ? "no NetworkManager connection" : s.dhcp ? "DHCP" : "Manual"})`
+    : "No IP address";
+  $("s-time").textContent = `${s.clock}  ${s.zone}`;
+
+  const deck = $("deck"); deck.innerHTML = "";
+  for (const svc of ["menu", "companion", "satellite"]) {
+    if (!s.installed[svc]) continue;
+    const b = document.createElement("button");
+    b.textContent = NAMES[svc];
+    b.className = s.owner === svc ? "on" : "";
+    b.disabled = s.owner === svc;
+    b.onclick = () => switchDeck(svc);
+    deck.appendChild(b);
+  }
+
+  if (!tzDirty && s.zone) $("tz").value = s.zone;
+
+  $("net-dhcp").className = s.dhcp ? "on" : "";
+  $("net-manual").className = s.dhcp === false ? "on" : "";
+  $("manual").hidden = !(manualOpen || s.dhcp === false);
+  if (document.activeElement !== $("ip") && document.activeElement !== $("mask") && !$("manual").dataset.edited) {
+    $("ip").value = s.ip || ""; $("mask").value = s.mask || "";
+  }
+}
+
+async function refresh() {
+  if (busy) return;
+  try {
+    st = await (await fetch("/api/status", { cache: "no-store" })).json();
+    render();
+  } catch { $("s-owner").textContent = "Can't reach the Pi. Retrying…"; }
+}
+
+async function switchDeck(svc) {
+  overlay(`<p>Handing the Stream Deck to ${NAMES[svc]}…</p>`);
+  try { await post("/api/deck", { target: svc }); } catch (e) { toast(e.message); }
+  await sleep(1500);
+  overlay(null); refresh();
+}
+
+$("tz").onchange = () => { tzDirty = true; };
+$("tz-set").onclick = async () => {
+  try { await post("/api/timezone", { zone: $("tz").value }); tzDirty = false; refresh(); }
+  catch (e) { toast(e.message); }
+};
+
+$("net-manual").onclick = () => { manualOpen = true; render(); $("ip").focus(); };
+["ip", "mask"].forEach(id => $(id).oninput = () => { $("manual").dataset.edited = "1"; });
+
+$("net-dhcp").onclick = async () => {
+  if (st && st.dhcp) return;
+  if (!confirm("Switch to DHCP? The Pi will get a new address and this page will lose its connection.")) return;
+  try { await post("/api/network", { mode: "dhcp" }); } catch (e) { return toast(e.message); }
+  const name = `http://${st.hostname}.local`;
+  moved(name, `The Pi is switching to DHCP. Its new address is on the Stream Deck's touchscreen if the menu has the deck.`);
+};
+
+$("manual").onsubmit = async ev => {
+  ev.preventDefault();
+  const ip = $("ip").value.trim(), mask = $("mask").value.trim();
+  if (!confirm(`Change the Pi's address to ${ip} / ${mask}? This page will move to the new address.`)) return;
+  try { await post("/api/network", { mode: "manual", ip, mask }); } catch (e) { return toast(e.message); }
+  delete $("manual").dataset.edited; manualOpen = false;
+  moved(`http://${ip}`, "If this page doesn't follow, your phone or laptop may be on a different network from the new address.");
+};
+
+// Show the new address as a link, and follow it automatically once it answers.
+async function moved(base, note) {
+  overlay(`<p>Now at</p><p><a href="${base}/">${base}</a></p><p class="note">${note}</p>`);
+  await sleep(4000);   // let the old address go away first
+  for (let i = 0; i < 120; i++) {
+    if (await reachable(base)) { location.href = `${base}/`; return; }
+    await sleep(1000);
+  }
+}
+
+$("restart").onclick = async () => {
+  if (!confirm("Restart the Pi?")) return;
+  try { await post("/api/power", { action: "restart" }); } catch (e) { return toast(e.message); }
+  overlay("<p>Restarting… this page reconnects by itself.</p>");
+  let wentDown = false;
+  for (let i = 0; i < 180; i++) {
+    await sleep(1000);
+    const up = await reachable("");
+    if (!up) wentDown = true;
+    else if (wentDown) { location.reload(); return; }
+  }
+  location.reload();
+};
+
+$("shutdown").onclick = async () => {
+  if (!confirm("Shut down the Pi? You'll need to unplug and replug its power to start it again.")) return;
+  try { await post("/api/power", { action: "shutdown" }); } catch (e) { return toast(e.message); }
+  overlay("<p>Shutting down…</p>");
+  for (let i = 0; i < 60; i++) {
+    await sleep(1000);
+    if (!(await reachable(""))) break;
+  }
+  overlay("<p>The Pi has shut down.</p><p class='note'>Safe to unplug once its green activity light has stopped flashing.</p>");
+};
+
+(async () => {
+  try {
+    const zones = await (await fetch("/api/timezones")).json();
+    $("tz").innerHTML = zones.map(z => `<option>${z}</option>`).join("");
+  } catch { toast("Couldn't load the timezone list."); }
+  await refresh();
+  setInterval(refresh, 3000);
+})();
+</script>
+</body>
+</html>

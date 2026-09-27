@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sdpi: setup manager for the StreamdeckXL Pi Boot Menu. Installs, updates and
-# removes each feature (menu app, restart and shutdown buttons, timezone
-# buttons, Companion, Satellite, Companion scripts, RTC).
+# removes each feature (menu app, web control page, restart and shutdown
+# buttons, timezone buttons, Companion, Satellite, Companion scripts, RTC).
 # Run it any time with: sudo sdpi
 set -uo pipefail
 
@@ -10,7 +10,7 @@ SDPI_HOME="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$SDPI_HOME/lib/common.sh"
 
-MODULES=(menu restart_key shutdown_key timezone companion satellite companion_scripts rtc)
+MODULES=(menu web restart_key shutdown_key timezone companion satellite companion_scripts rtc)
 for _m in "${MODULES[@]}"; do
   # shellcheck source=/dev/null
   source "$SDPI_HOME/modules/$_m.sh"
@@ -151,7 +151,7 @@ update_menu() {
     echo "  ${C_BLD}Update${C_RST}"
     echo
     echo "  1) Everything (this project, Companion, Satellite and system packages)"
-    echo "  2) This project only (sdpi, menu app and Companion scripts)"
+    echo "  2) This project only (sdpi, menu app, web page and Companion scripts)"
     i=3
     for m in "${upd[@]}"; do
       printf "  %d) %s\n" "$i" "$("${m}_label")"
@@ -186,6 +186,7 @@ update_components() {
 update_project() {
   if companion_scripts_installed; then companion_scripts_update; fi
   if menu_installed; then menu_update; fi
+  if web_installed; then web_update; else web_install_if_wanted; fi
 }
 
 # Pulls the latest sdpi first, then restarts into the new code (with the given

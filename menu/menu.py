@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, time, json, subprocess, re, threading
+import sys, time, json, subprocess, re, threading, math
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -38,6 +38,7 @@ SELF_SERVICE_NAME = "menu"
 TZ_CONFIG = "/etc/menu/timezones.json"
 
 AUTO_REFRESH_SECS = 1.0
+CONFIRM_TIMEOUT_SECS = 10   # restart/shutdown confirm screen cancels itself after this
 # ============================================
 
 # StreamDeck Plus XL (9x4) — keys 0-35
@@ -265,6 +266,7 @@ dhcp_on = False
 tz_buttons  = []
 active_zone = ""
 confirm_action = None   # "restart"/"shutdown" while the confirm screen is up
+confirm_deadline = None # when the confirm screen cancels itself; None once confirmed
 lcd_message    = None   # full-width touchscreen text, replacing the IP zones
 
 def refresh_current():
@@ -354,10 +356,11 @@ def show_only(images):
             deck.set_key_image(k, images.get(k, blank))
 
 def start_power_confirm(action):
-    global confirm_action, lcd_message
+    global confirm_action, confirm_deadline, lcd_message
     prompt, _busy, _cmd, color = POWER_ACTIONS[action]
     confirm_action = action
-    lcd_message = prompt
+    confirm_deadline = time.time() + CONFIRM_TIMEOUT_SECS
+    lcd_message = f"{prompt} {CONFIRM_TIMEOUT_SECS}"
     show_only({KEY_CONFIRM: img_text(deck, "CONFIRM", color),
                KEY_CANCEL:  img_text(deck, "CANCEL", (0, 60, 140))})
     update_lcd()
@@ -369,9 +372,25 @@ def cancel_power_confirm():
     draw_static_keys()
     redraw()
 
-def do_power_action(action):
+def tick_power_confirm():
+    """Once a second while the confirm screen is up: count down on the
+    touchscreen, and cancel (never confirm) when time runs out."""
     global lcd_message
+    action, deadline = confirm_action, confirm_deadline
+    if not action or deadline is None:
+        return
+    left = math.ceil(deadline - time.time())
+    if left <= 0:
+        log(f"{action} confirm timed out")
+        cancel_power_confirm()
+        return
+    lcd_message = f"{POWER_ACTIONS[action][0]} {left}"
+    update_lcd()
+
+def do_power_action(action):
+    global lcd_message, confirm_deadline
     _prompt, busy, cmd, _color = POWER_ACTIONS[action]
+    confirm_deadline = None   # stop the countdown; it's happening now
     log(f"{action} confirmed from the menu")
     lcd_message = busy
     show_only({})
@@ -683,9 +702,13 @@ drawn_zone, drawn_minute = active_zone, int(time.time() // 60)
 t_next = time.time() + AUTO_REFRESH_SECS
 while True:
     time.sleep(0.05)
-    if confirm_action or time.time() < t_next:
+    if time.time() < t_next:
         continue
     t_next = time.time() + AUTO_REFRESH_SECS
+
+    if confirm_action:
+        tick_power_confirm()
+        continue
 
     # Catches a zone changed some other way (SSH, sdpi) so the lit key stays
     # right, and ticks the clocks over each minute.

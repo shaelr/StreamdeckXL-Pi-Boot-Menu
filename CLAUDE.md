@@ -203,13 +203,16 @@ nothing to install. Removing a key only takes it off the menu. Companion's
 `reboot-pi.sh`/`shutdown-pi.sh` belong to `companion_scripts` and stay put
 (the user uses them from Companion). Pressing either key blanks the deck except CONFIRM (21) and
 CANCEL (23), and puts the question on the touchscreen (`lcd_message`). Any key
-other than CONFIRM cancels. The confirm screen is deliberately untimed, with
-separate keys, not a "press again within N seconds" countdown. That mirrors the
-IP-edit flow (`editing` has no expiry; `_do_apply()` needs a *different*
-control pressed first), and CONFIRM is never the key that asked, so a double
-press can't confirm. While `confirm_action` is set, `redraw()`,
-`draw_tz_keys()`, `flash_ok()`, `on_dial()` and the refresh loop all stand down,
-so background redraws can't paint over the confirm screen. Shutdown blanks the
+other than CONFIRM cancels. CONFIRM is a separate key, never the one that
+asked, so a double press can't confirm. The screen **cancels itself after
+`CONFIRM_TIMEOUT_SECS` (10)**, with a countdown after the question on the
+touchscreen. The user asked for this (2026-09-27) after it first shipped
+untimed. The timeout only ever cancels; it never confirms. The refresh loop
+drives it (`tick_power_confirm()`), and `do_power_action()` sets
+`confirm_deadline = None` so the countdown can't cancel an action already
+underway. While `confirm_action` is set, `redraw()`, `draw_tz_keys()`,
+`flash_ok()`, `on_dial()` and the rest of the refresh loop stand down, so
+background redraws can't paint over the confirm screen. Shutdown blanks the
 keys and drops the brightness to 0 before `systemctl poweroff`, because USB
 power usually stays on after the Pi halts. If the command fails, the menu comes
 back and flashes FAILED. Runs as root, so no sudoers is needed. This sits

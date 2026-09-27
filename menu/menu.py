@@ -22,8 +22,9 @@ RIGHT_START_LABEL = "SATELLITE"
 LEFT_START_ICON  = "/opt/menu/icons/comp256x256.png"
 RIGHT_START_ICON = "/opt/menu/icons/sat256x256.png"
 
-# sdpi writes POWER_DISABLED when the user removes the power keys; no file = shown.
-POWER_DISABLED = "/etc/menu/power-buttons-disabled"
+# sdpi writes these when the user removes a key from the menu; no file = shown.
+RESTART_DISABLED  = "/etc/menu/restart-button-disabled"
+SHUTDOWN_DISABLED = "/etc/menu/shutdown-button-disabled"
 RESTART_ICON   = "/opt/menu/icons/res256x256.png"
 SHUTDOWN_ICON  = "/opt/menu/icons/pwr256x256.png"
 
@@ -440,8 +441,9 @@ def draw_static_keys():
                                       (KEY_RIGHT, RIGHT_START_LABEL, RIGHT_START_ICON, RIGHT_START_SERVICE)):
             if service_installed(svc):
                 deck.set_key_image(key, img_icon(deck, label, (0, 60, 140), icon))
-        if power_buttons_enabled():
+        if power_key_enabled("restart"):
             deck.set_key_image(KEY_RESTART,  img_icon(deck, "RESTART",  GREEN, RESTART_ICON))
+        if power_key_enabled("shutdown"):
             deck.set_key_image(KEY_SHUTDOWN, img_icon(deck, "SHUTDOWN", RED,   SHUTDOWN_ICON))
     draw_tz_keys()
 
@@ -470,8 +472,8 @@ POWER_ACTIONS = {
     "shutdown": ("SHUT DOWN THE PI?", "SHUTTING DOWN...", ["systemctl", "poweroff"], RED),
 }
 
-def power_buttons_enabled():
-    return not Path(POWER_DISABLED).exists()
+def power_key_enabled(action):
+    return not Path(RESTART_DISABLED if action == "restart" else SHUTDOWN_DISABLED).exists()
 
 def show_only(images):
     """Blank every key except the given {key: image}."""
@@ -751,8 +753,10 @@ def on_key(_, key, pressed):
             cancel_power_confirm()
         return
 
-    if key in (KEY_RESTART, KEY_SHUTDOWN) and power_buttons_enabled():
-        start_power_confirm("restart" if key == KEY_RESTART else "shutdown")
+    if key in (KEY_RESTART, KEY_SHUTDOWN):
+        action = "restart" if key == KEY_RESTART else "shutdown"
+        if power_key_enabled(action):
+            start_power_confirm(action)
         return
 
     if key == KEY_DHCP:

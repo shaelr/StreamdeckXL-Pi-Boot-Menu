@@ -33,7 +33,8 @@ sudo sdpi
  StreamdeckXL Pi Boot Menu setup        main @ a1b2c3d
  ------------------------------------------------------------------
   Menu app             Installed (streamdeck 0.10.0, running)
-  Power buttons        Installed (restart and shutdown on the menu)
+  Restart button       Installed (restart the Pi from the menu)
+  Shutdown button      Installed (shut down the Pi from the menu)
   Timezone buttons     Not installed
   Companion            Installed (v5.0.6)
   Satellite            Installed (v3.4.0)
@@ -52,7 +53,7 @@ piped form still works; sdpi reattaches to the terminal itself.)
 | Feature | What it installs |
 | --- | --- |
 | **Menu app** | `menu/menu.py` in a venv at `/opt/menu`, run as `menu.service`. Shows COMPANION/SATELLITE keys plus a touchscreen for static IP / DHCP, and hands the Stream Deck to whichever you pick. A key only appears if that one is installed. Uses the [python-elgato-streamdeck](https://github.com/abcminiuser/python-elgato-streamdeck) library, deliberately unpinned: if the touchscreen ever renders wrong after an update, `menu.py`'s `update_lcd()` (written against `streamdeck` 0.10.0) is the first place to look. |
-| **Power buttons** | RESTART and SHUTDOWN keys on the menu (third row, left and right ends). Pressing one clears the deck to CONFIRM and CANCEL, with the question on the touchscreen; any other key cancels, and nothing happens on its own. On by default with the menu app; **Remove** takes them off the menu and **Install** puts them back. |
+| **Restart button** / **Shutdown button** | RESTART and SHUTDOWN keys on the menu (third row, left and right ends). Pressing one clears the deck to CONFIRM and CANCEL, with the question on the touchscreen; any other key cancels, and nothing happens on its own. Both are on by default with the menu app. Each is a separate feature: **Remove** takes that key off the menu and **Install** puts it back. Removing them doesn't touch the Companion scripts, so Companion's shutdown/reboot buttons keep working. |
 | **Timezone buttons** | One key per zone across the top row of the menu (active zone in green). Pressing one sets the Pi's timezone with `timedatectl`. The list is `/etc/menu/timezones.json` — Eastern, Central, Mountain, Pacific and Arizona by default, up to 9; edit it, then **Update → Menu app**. Set the zone before handing off and Companion starts in it, so no Companion restart is needed. Needs the menu app. |
 | **Companion** | The latest **stable** Bitfocus Companion via Bitfocus's own installer, disabled at boot so the menu decides when it runs. Enables Companion's "Run shell command" action (off by default upstream). |
 | **Satellite** | The latest **stable** Companion Satellite via Bitfocus's own installer, also disabled at boot. |

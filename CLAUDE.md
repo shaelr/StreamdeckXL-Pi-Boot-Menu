@@ -43,7 +43,7 @@ the new code. The one-liner uses `bash -c "$(curl ...)"` so stdin stays the
 keyboard; `sdpi` also reattaches to `/dev/tty` if launched via `curl | bash`.
 
 **`sdpi`** is a numbered text menu (Install / Update / Remove / Advanced) over
-`MODULES=(menu power timezone companion satellite companion_scripts rtc)`. Each
+`MODULES=(menu restart_key shutdown_key timezone companion satellite companion_scripts rtc)`. Each
 `modules/<id>.sh` defines `<id>_label`, `<id>_installed`, `<id>_detail`,
 `<id>_install`, `<id>_remove`, and optionally `<id>_update`. Status comes from
 the Pi's actual state (unit files, BUILD files, the config.txt overlay line),
@@ -141,10 +141,14 @@ need. Not yet verified on hardware.
 SHUTDOWN on key 26 (red), with the user's `res256x256.png`/`pwr256x256.png`
 icons. The two keys are on the third row at opposite ends, so reaching for one
 won't hit the other. (Top row = timezone keys; bottom row = COMPANION 27,
-DHCP 31, SATELLITE 35.) They're on by default. The `power` module inverts the
-usual flag: removing it writes `/etc/menu/power-buttons-disabled`, which
-`menu.py` checks. That way existing installs pick up the keys on update with
-nothing to install. Pressing either key blanks the deck except CONFIRM (21) and
+DHCP 31, SATELLITE 35.) They're on by default and each is its own sdpi feature
+(`restart_key`, `shutdown_key`; the user wanted them removable individually).
+The modules invert the usual flag: removing one writes
+`/etc/menu/restart-button-disabled` or `/etc/menu/shutdown-button-disabled`,
+which `menu.py` checks, so existing installs pick up the keys on update with
+nothing to install. Removing a key only takes it off the menu. Companion's
+`reboot-pi.sh`/`shutdown-pi.sh` belong to `companion_scripts` and stay put
+(the user uses them from Companion). Pressing either key blanks the deck except CONFIRM (21) and
 CANCEL (23), and puts the question on the touchscreen (`lcd_message`). Any key
 other than CONFIRM cancels. The confirm screen is deliberately untimed, with
 separate keys, not a "press again within N seconds" countdown. That mirrors the

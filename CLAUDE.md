@@ -173,10 +173,15 @@ Design decisions:
   independent of the deck's `timezones.json`.
 - **Replies first:** network changes and power actions are applied ~0.5-1s
   *after* replying, because they cut the connection.
-- **Following an IP change:** the page shows a "Now at" link as a failsafe,
-  and polls the new address's `/api/ping` (`no-cors`) to follow it
-  automatically. For DHCP it polls `http://<hostname>.local`, which relies on
-  Pi OS's avahi.
+- **Following an IP change** depends on how the page was opened (the user's
+  rule). If it was opened by name (`http://<hostname>.local`), there's no "Now
+  at" screen: the page shows "Applying… reconnecting" and reloads once the same
+  name answers. If it was opened by IP, it always shows "Now at
+  http://<new ip>" as a failsafe and follows it once `/api/ping` answers there
+  (`no-cors`). For DHCP it learns the new IP by fetching
+  `http://<hostname>.local/api/ping`, which is CORS-enabled and returns
+  `{"ip"}`, so it relies on Pi OS's avahi and on the client resolving `.local`.
+  After ~30s it points to the deck's touchscreen instead.
 - **On by default:** `menu_install` calls `web_install`; `update_project`
   calls `web_install_if_wanted`. `web_remove` leaves
   `/etc/menu/web-disabled` so updates don't re-add a page the user removed.

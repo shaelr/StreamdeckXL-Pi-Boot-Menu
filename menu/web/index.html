@@ -181,8 +181,7 @@ $("net-dhcp").onclick = async () => {
   if (st && st.dhcp) return;
   if (!confirm("Switch to DHCP? The Pi will get a new address and this page will lose its connection.")) return;
   try { await post("/api/network", { mode: "dhcp" }); } catch (e) { return toast(e.message); }
-  const name = `http://${st.hostname}.local`;
-  moved(name, `The Pi is switching to DHCP. Its new address is on the Stream Deck's touchscreen if the menu has the deck.`);
+  if (VIA_NAME) reconnect(); else findDhcpAddress();
 };
 
 $("manual").onsubmit = async ev => {
@@ -191,13 +190,52 @@ $("manual").onsubmit = async ev => {
   if (!confirm(`Change the Pi's address to ${ip} / ${mask}? This page will move to the new address.`)) return;
   try { await post("/api/network", { mode: "manual", ip, mask }); } catch (e) { return toast(e.message); }
   delete $("manual").dataset.edited; manualOpen = false;
-  moved(`http://${ip}`, "If this page doesn't follow, your phone or laptop may be on a different network from the new address.");
+  if (VIA_NAME) reconnect(); else moved(`http://${ip}`);
 };
 
-// Show the new address as a link, and follow it automatically once it answers.
-async function moved(base, note) {
-  overlay(`<p>Now at</p><p><a href="${base}/">${base}</a></p><p class="note">${note}</p>`);
+// Opened by name (http://companion.local), not by IP: the name follows the Pi
+// to its new address, so there's no new address to show.
+const VIA_NAME = !/^(\d+\.){3}\d+$|^\[/.test(location.hostname);
+const OTHER_NET = "If this page doesn't follow, your phone or laptop may be on a different network from the new address.";
+
+async function reconnect() {
+  const msg = "<p>Applying… reconnecting.</p>";
+  overlay(msg);
   await sleep(4000);   // let the old address go away first
+  for (let i = 0; i < 120; i++) {
+    if (await reachable("")) { location.reload(); return; }
+    if (i === 30) overlay(`${msg}<p class="note">${OTHER_NET}</p>`);
+    await sleep(1000);
+  }
+}
+
+// DHCP from a page opened by IP: ask the Pi its new address through its
+// .local name, then show and follow that IP.
+async function findDhcpAddress() {
+  const name = `http://${st.hostname}.local`;
+  const msg = "<p>Switching to DHCP…</p><p class='note'>Waiting for the Pi's new address.</p>";
+  overlay(msg);
+  await sleep(4000);
+  for (let i = 0; i < 120; i++) {
+    const ip = await askIp(name);
+    if (ip) return moved(`http://${ip}`, 0);
+    if (i === 30) overlay(`${msg}<p class="note">Your device can't find the Pi by name (${name}).
+      Its new address is on the Stream Deck's touchscreen if the menu has the deck.</p>`);
+    await sleep(1000);
+  }
+}
+
+async function askIp(base) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 1500);
+  try { return (await (await fetch(`${base}/api/ping?${Date.now()}`, { cache: "no-store", signal: c.signal })).json()).ip; }
+  catch { return null; }
+  finally { clearTimeout(t); }
+}
+
+// Show the new address as a link, and follow it automatically once it answers.
+async function moved(base, wait = 4000) {
+  overlay(`<p>Now at</p><p><a href="${base}/">${base}</a></p><p class="note">${OTHER_NET}</p>`);
+  await sleep(wait);   // let the old address go away first
   for (let i = 0; i < 120; i++) {
     if (await reachable(base)) { location.href = `${base}/`; return; }
     await sleep(1000);

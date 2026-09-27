@@ -139,8 +139,11 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/timezones":
                 self.send(200, pc.list_timezones())
             elif path == "/api/ping":
-                # Polled from the old address after an IP change to find the new one.
-                self.send(200, {"ok": True}, extra=[("Access-Control-Allow-Origin", "*")])
+                # Polled cross-origin after an IP change: to find the new address,
+                # and (via <hostname>.local) to learn a new DHCP address.
+                ip, _mask = pc.get_ip_mask()
+                self.send(200, {"ok": True, "ip": ".".join(map(str, ip)) if pc.ip_ok(ip) else None},
+                          extra=[("Access-Control-Allow-Origin", "*")])
             else:
                 self.send(404, {"error": "Not found."})
         except Exception as e:
